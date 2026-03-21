@@ -1,4 +1,6 @@
-import { Wifi, Bath, Wind } from 'lucide-react';
+'use client';
+
+import { Bath, Wind, Maximize, User, Clock } from 'lucide-react';
 
 interface Room {
   id: string;
@@ -16,67 +18,89 @@ interface RoomCardProps {
 }
 
 export function RoomCard({ room, onClick }: RoomCardProps) {
+  const isLocked = room.id === 'room-301';
+  
   return (
     <button
       onClick={onClick}
-      className="w-full text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded-lg"
+      disabled={isLocked}
+      className={`
+        w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 rounded-2xl
+        ${isLocked ? 'cursor-not-allowed opacity-75' : 'cursor-pointer'}
+      `}
     >
       <div
-        className={`glass-card p-5 ${room.isOccupied ? 'ring-1 ring-red-100' : ''}`}
+        className={`
+          glass-card p-5 h-full
+          ${room.isOccupied ? 'border-rose-100 bg-rose-50/30' : 'border-emerald-100 bg-white'}
+          ${!isLocked ? 'hover:shadow-lg hover:scale-[1.02]' : ''}
+          transition-all duration-200
+        `}
       >
-        {/* Room Number and Status */}
+        {/* Header */}
         <div className="flex items-start justify-between mb-4">
-          <h2 className="text-2xl font-bold text-gray-900">Room {room.number}</h2>
-          <div className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
-            room.isOccupied
-              ? 'bg-red-100 text-red-700'
-              : 'bg-emerald-100 text-emerald-700'
-          }`}>
-            {room.isOccupied ? 'Occupied' : 'Available'}
+          <div>
+            <h3 className="text-xl font-semibold text-gray-900">
+              {room.number}
+            </h3>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {typeof room.price === 'number' 
+                ? `LKR ${room.price.toLocaleString()}/night` 
+                : room.price
+              }
+            </p>
           </div>
-        </div>
-
-        {/* Price */}
-        <div className="mb-4">
-          <p className="text-gray-600 text-sm mb-1">Rate</p>
-          <p className="text-lg font-semibold text-gray-900">
-            {typeof room.price === 'number' ? `${room.price.toLocaleString()} LKR` : room.price}
-          </p>
+          <span className={room.isOccupied ? 'badge-occupied' : 'badge-available'}>
+            {room.isOccupied ? 'Occupied' : 'Available'}
+          </span>
         </div>
 
         {/* Guest Info (if occupied) */}
-        {room.isOccupied && (
-          <div className="mb-4 p-3 bg-red-100/50 rounded-lg">
-            <p className="text-xs text-gray-600 mb-1">Guest</p>
-            <p className="text-sm font-semibold text-gray-900 mb-2">{room.guestName}</p>
-            <p className="text-xs text-gray-600 mb-1">Check-out</p>
-            <p className="text-sm text-gray-900 font-semibold">{room.checkOutTime}</p>
+        {room.isOccupied && room.guestName && (
+          <div className="mb-4 p-3 bg-white/80 rounded-xl border border-rose-100">
+            <div className="flex items-center gap-2 mb-2">
+              <User className="w-4 h-4 text-gray-400" />
+              <span className="text-sm font-medium text-gray-900">{room.guestName}</span>
+            </div>
+            {room.checkOutTime && (
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-gray-400" />
+                <span className="text-xs text-gray-600">Check-out: {room.checkOutTime}</span>
+              </div>
+            )}
           </div>
         )}
 
         {/* Amenities */}
         <div className="flex flex-wrap gap-2">
-          {room.amenities.includes('Bathtub') && (
-            <div className="flex items-center gap-1 bg-blue-50 border border-blue-200 rounded-md px-2.5 py-1.5">
-              <Bath size={14} className="text-blue-600" />
-              <span className="text-xs font-medium text-blue-900">Bathtub</span>
-            </div>
-          )}
-          {room.amenities.includes('No Balcony') ? (
-            <div className="flex items-center gap-1 bg-orange-50 border border-orange-200 rounded-md px-2.5 py-1.5">
-              <Wind size={14} className="text-orange-600" />
-              <span className="text-xs font-medium text-orange-900">No Balcony</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1 bg-emerald-50 border border-emerald-200 rounded-md px-2.5 py-1.5">
-              <Wind size={14} className="text-emerald-600" />
-              <span className="text-xs font-medium text-emerald-900">Balcony</span>
-            </div>
-          )}
           {room.amenities.includes('Large Room') && (
-            <div className="flex items-center gap-1 bg-purple-50 border border-purple-200 rounded-md px-2.5 py-1.5">
-              <Wifi size={14} className="text-purple-600" />
-              <span className="text-xs font-medium text-purple-900">Large</span>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-violet-50 text-violet-700 rounded-lg text-xs font-medium">
+              <Maximize className="w-3.5 h-3.5" />
+              Large
+            </div>
+          )}
+          {room.amenities.includes('Bathtub') && (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium">
+              <Bath className="w-3.5 h-3.5" />
+              Bathtub
+            </div>
+          )}
+          {room.amenities.includes('Balcony') && (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-medium">
+              <Wind className="w-3.5 h-3.5" />
+              Balcony
+            </div>
+          )}
+          {room.amenities.includes('No Balcony') && (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium">
+              <Wind className="w-3.5 h-3.5" />
+              No Balcony
+            </div>
+          )}
+          {room.amenities.includes('Family Friend') && (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-xs font-medium">
+              <User className="w-3.5 h-3.5" />
+              Reserved
             </div>
           )}
         </div>

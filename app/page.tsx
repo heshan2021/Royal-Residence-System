@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { RoomCard } from './components/RoomCard';
 import { CheckInModal, CheckInData } from './components/CheckInModal';
 import { CheckOutModal } from './components/CheckOutModal';
+import { Building2, Users, DoorOpen } from 'lucide-react';
 
 interface Room {
   id: string;
@@ -43,7 +44,7 @@ export default function Dashboard() {
   const [modalType, setModalType] = useState<'checkin' | 'checkout' | null>(null);
 
   const handleRoomClick = useCallback((room: Room) => {
-    if (room.id === 'room-301') return; // Prevent interaction with permanent room
+    if (room.id === 'room-301') return;
     
     setSelectedRoom(room);
     if (room.isOccupied) {
@@ -104,67 +105,128 @@ export default function Dashboard() {
   const availableCount = rooms.length - occupiedCount;
 
   return (
-    <main className="main-content min-h-screen p-6 md:p-8 lg:p-12">
-      {/* Sleek Minimalist Header (no logo) */}
-      <div className="flex flex-col justify-center mb-8">
-        <h1 className="text-2xl md:text-3xl font-semibold text-slate-900 leading-tight mb-0.5">Royal Residence</h1>
-        <p className="text-slate-500 text-xs md:text-sm font-medium tracking-wide uppercase leading-tight">Receptionist Dashboard</p>
-      </div>
+    <main className="min-h-screen">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
+                Royal Residence
+              </h1>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Receptionist Dashboard
+              </p>
+            </div>
+            <div className="hidden sm:flex items-center gap-2 text-sm text-gray-500">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+              <span>Live</span>
+            </div>
+          </div>
+        </div>
+      </header>
 
-      {/* Refined Stats Section */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-        {/* Total Rooms */}
-        <div className="p-6 flex flex-col justify-center bg-white border border-gray-200 rounded-xl shadow-sm">
-            <p className="text-slate-400 text-sm font-semibold tracking-wider uppercase mb-1">Total Rooms</p>
-            <p className="text-3xl md:text-4xl font-light text-slate-800 break-words">{rooms.length}</p>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Stats Section */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
+          {/* Total Rooms */}
+          <div className="stats-card group">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="stats-label">Total Rooms</p>
+                <p className="stats-value">{rooms.length}</p>
+              </div>
+              <div className="p-2.5 bg-gray-50 rounded-xl group-hover:bg-gray-100 transition-colors">
+                <Building2 className="w-5 h-5 text-gray-400" />
+              </div>
+            </div>
+          </div>
+
+          {/* Available */}
+          <div className="stats-card group">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="stats-label">Available</p>
+                <p className="stats-value text-emerald-600">{availableCount}</p>
+              </div>
+              <div className="p-2.5 bg-emerald-50 rounded-xl group-hover:bg-emerald-100 transition-colors">
+                <DoorOpen className="w-5 h-5 text-emerald-500" />
+              </div>
+            </div>
+          </div>
+
+          {/* Occupied */}
+          <div className="stats-card group">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="stats-label">Occupied</p>
+                <p className="stats-value text-rose-600">{occupiedCount}</p>
+              </div>
+              <div className="p-2.5 bg-rose-50 rounded-xl group-hover:bg-rose-100 transition-colors">
+                <Users className="w-5 h-5 text-rose-500" />
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Available Rooms */}
-        <div className="p-6 flex flex-col justify-center relative overflow-hidden bg-white border border-gray-200 rounded-xl shadow-sm">
-          <div className="absolute top-6 right-6 w-2 h-2 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
-            <p className="text-slate-400 text-sm font-semibold tracking-wider uppercase mb-1">Available</p>
-            <p className="text-3xl md:text-4xl font-light text-slate-800 break-words">{availableCount}</p>
-        </div>
+        {/* Rooms Section */}
+        <div className="space-y-8">
+          {/* Floor 3 */}
+          <section>
+            <div className="flex items-center gap-3 mb-4">
+              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">
+                Floor 3
+              </h2>
+              <div className="flex-1 h-px bg-gray-200" />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {rooms.filter(r => r.number.startsWith('3')).map(room => (
+                <RoomCard
+                  key={room.id}
+                  room={room}
+                  onClick={() => handleRoomClick(room)}
+                />
+              ))}
+            </div>
+          </section>
 
-        {/* Occupied Rooms */}
-        <div className="p-6 flex flex-col justify-center relative overflow-hidden bg-white border border-gray-200 rounded-xl shadow-sm">
-           <div className="absolute top-6 right-6 w-2 h-2 bg-rose-400 rounded-full shadow-[0_0_8px_rgba(251,113,133,0.8)]" />
-           <p className="text-slate-400 text-sm font-semibold tracking-wider uppercase mb-1">Occupied</p>
-           <p className="text-3xl md:text-4xl font-light text-slate-800 break-words">{occupiedCount}</p>
-        </div>
-      </div>
+          {/* Floor 2 */}
+          <section>
+            <div className="flex items-center gap-3 mb-4">
+              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">
+                Floor 2
+              </h2>
+              <div className="flex-1 h-px bg-gray-200" />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {rooms.filter(r => r.number.startsWith('2')).map(room => (
+                <RoomCard
+                  key={room.id}
+                  room={room}
+                  onClick={() => handleRoomClick(room)}
+                />
+              ))}
+            </div>
+          </section>
 
-      {/* Rooms Grid: 3xx top, 2xx middle, 101 bottom */}
-      <div className="space-y-8">
-        {/* Top row: 3xx */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 auto-rows-max">
-          {rooms.filter(r => r.number.startsWith('3')).map(room => (
-            <RoomCard
-              key={room.id}
-              room={room}
-              onClick={() => handleRoomClick(room)}
-            />
-          ))}
-        </div>
-        {/* Middle row: 2xx */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 auto-rows-max">
-          {rooms.filter(r => r.number.startsWith('2')).map(room => (
-            <RoomCard
-              key={room.id}
-              room={room}
-              onClick={() => handleRoomClick(room)}
-            />
-          ))}
-        </div>
-        {/* Bottom row: 101 */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 auto-rows-max">
-          {rooms.filter(r => r.number === '101').map(room => (
-            <RoomCard
-              key={room.id}
-              room={room}
-              onClick={() => handleRoomClick(room)}
-            />
-          ))}
+          {/* Floor 1 */}
+          <section>
+            <div className="flex items-center gap-3 mb-4">
+              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">
+                Floor 1
+              </h2>
+              <div className="flex-1 h-px bg-gray-200" />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {rooms.filter(r => r.number === '101').map(room => (
+                <RoomCard
+                  key={room.id}
+                  room={room}
+                  onClick={() => handleRoomClick(room)}
+                />
+              ))}
+            </div>
+          </section>
         </div>
       </div>
 
