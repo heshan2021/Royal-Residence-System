@@ -1,19 +1,34 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { Lock, ArrowRight } from 'lucide-react';
 
+// Helper to read session storage safely (returns null during SSR)
+function getSessionAuth(): boolean | null {
+  if (typeof window === 'undefined') return null;
+  return window.sessionStorage.getItem('residence_access') === 'true';
+}
+
+// Subscribe function for useSyncExternalStore (session storage doesn't emit events, so no-op)
+function subscribe(): () => void {
+  // Session storage doesn't have a native change event within the same tab
+  // We just need to read the initial value, so this is a no-op
+  return () => {};
+}
+
 export default function PasswordGate({ children }: { children: React.ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const initialAuth = useSyncExternalStore(
+    subscribe,
+    getSessionAuth,
+    () => null // Server snapshot
+  );
+  const [authState, setAuthState] = useState<boolean | null>(null);
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Check authentication on mount (client-side only)
-  useEffect(() => {
-    const hasAccess = window.sessionStorage.getItem('residence_access') === 'true';
-    setIsAuthenticated(hasAccess);
-  }, []);
+  // Use authState if set (after login), otherwise use initialAuth from session storage
+  const isAuthenticated = authState !== null ? authState : initialAuth;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,7 +38,7 @@ export default function PasswordGate({ children }: { children: React.ReactNode }
     
     if (input === 'residence777') {
       window.sessionStorage.setItem('residence_access', 'true');
-      setIsAuthenticated(true);
+      setAuthState(true);
     } else {
       setError('Incorrect password');
       setIsLoading(false);

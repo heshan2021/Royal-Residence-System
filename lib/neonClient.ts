@@ -11,7 +11,7 @@ export const pool = new Pool({
 });
 
 // Example query function
-export const query = async (text: string, params?: any[]) => {
+export const query = async (text: string, params?: unknown[]) => {
   const client = await pool.connect();
   try {
     const res = await client.query(text, params);
