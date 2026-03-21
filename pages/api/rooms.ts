@@ -43,6 +43,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           }
         }
 
+        // Format checkOutTime: if null and occupied, show "Long-term"
+        let checkOutTimeDisplay: string | undefined;
+        if (room.isOccupied) {
+          checkOutTimeDisplay = room.checkOutTime 
+            ? room.checkOutTime.toISOString() 
+            : 'Long-term';
+        }
+
         return {
           id: `room-${room.number}`,
           number: room.number,
@@ -52,7 +60,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           guestName: room.guestName,
           phoneNumber: room.phoneNumber,
           nicNumber: room.nicNumber,
-          checkOutTime: room.checkOutTime?.toISOString(),
+          checkOutTime: checkOutTimeDisplay,
           totalAmount,
           paidAmount,
         };

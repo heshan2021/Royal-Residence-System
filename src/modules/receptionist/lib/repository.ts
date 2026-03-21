@@ -24,20 +24,9 @@ export async function getAllRooms(): Promise<UIRoom[]> {
     
     const rooms = await response.json();
     
-    // Handle special case for room 301 (Family Friend)
-    return rooms.map((room: UIRoom) => {
-      if (room.number === '301') {
-        return {
-          ...room,
-          price: 'N/A',
-          guestName: 'Family Friend',
-          phoneNumber: 'N/A',
-          nicNumber: 'N/A',
-          checkOutTime: 'Long-term',
-        };
-      }
-      return room;
-    });
+    // Room data is now fully managed from the database
+    // Room 301's guest info, checkOutTime, isOccupied etc. comes from DB
+    return rooms;
   } catch (error) {
     console.error('Failed to fetch rooms:', error);
     // Return empty array on error
