@@ -1,43 +1,47 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Lock, ArrowRight } from 'lucide-react';
 
 export default function PasswordGate({ children }: { children: React.ReactNode }) {
-  const [show, setShow] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return window.sessionStorage.getItem('residence_access') === 'true';
-    }
-    return false;
-  });
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Check authentication on mount (client-side only)
+  useEffect(() => {
+    const hasAccess = window.sessionStorage.getItem('residence_access') === 'true';
+    setIsAuthenticated(hasAccess);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     
-    // Small delay for UX
     await new Promise(resolve => setTimeout(resolve, 300));
     
     if (input === 'residence777') {
-      setShow(true);
       window.sessionStorage.setItem('residence_access', 'true');
+      setIsAuthenticated(true);
     } else {
       setError('Incorrect password');
       setIsLoading(false);
     }
   };
 
-  if (!show) {
+  // Show loading while checking auth status (prevents hydration mismatch)
+  if (isAuthenticated === null) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-50">
+        <div className="w-8 h-8 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
-        {/* Background Pattern */}
-        <div className="absolute inset-0 opacity-[0.03]" style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-        }} />
-        
         <div className="relative w-full max-w-sm mx-4">
           {/* Logo/Brand */}
           <div className="text-center mb-8">
