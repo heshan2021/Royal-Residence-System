@@ -1,8 +1,9 @@
 'use client';
 
-import { X, UserPlus, CreditCard } from 'lucide-react';
-import { useState } from 'react';
-import { PaymentMethod } from '../../../../types/room';
+import { X, UserPlus, CreditCard, Search, User } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { PaymentMethod, Guest } from '../../../../types/room';
+import { findGuestByQuery } from '../lib/repository';
 
 interface CheckInModalProps {
   room: string;
@@ -53,12 +54,78 @@ export function CheckInModal({ room, roomPrice, onConfirm, onClose }: CheckInMod
 
   const [errors, setErrors] = useState<Partial<Record<keyof CheckInData, string>>>({});
 
+  // Guest search state
+  const [searchResults, setSearchResults] = useState<Guest[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null);
+  const [showResults, setShowResults] = useState(false);
+
   // Calculate total amount
   const totalAmount = roomPrice * formData.days;
   const balanceAfterAdvance = totalAmount - formData.advancePayment;
 
+  // Debounced search function
+  const performSearch = useCallback(async (query: string) => {
+    if (query.trim().length < 2) {
+      setSearchResults([]);
+      setShowResults(false);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const results = await findGuestByQuery(query);
+      setSearchResults(results);
+      setShowResults(results.length > 0);
+    } catch (error) {
+      console.error('Search error:', error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  // Debounce search when guest name changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      performSearch(formData.guestName);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [formData.guestName, performSearch]);
+
+  // Handle guest selection
+  const handleGuestSelect = (guest: Guest) => {
+    setSelectedGuest(guest);
+    setFormData(prev => ({
+      ...prev,
+      guestName: guest.name,
+      phoneNumber: guest.phone_number,
+      nicNumber: guest.nic_number,
+    }));
+    setShowResults(false);
+  };
+
+  // Clear guest selection
+  const handleClearGuest = () => {
+    setSelectedGuest(null);
+    setFormData(prev => ({
+      ...prev,
+      guestName: '',
+      phoneNumber: '',
+      nicNumber: '',
+    }));
+    setShowResults(false);
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    
+    // If guest name is being changed and a guest is selected, clear the selection
+    if (name === 'guestName' && selectedGuest) {
+      setSelectedGuest(null);
+    }
+    
     if (name === 'days') {
       const days = Math.max(1, parseInt(value) || 1);
       setFormData((prev) => ({
@@ -82,6 +149,7 @@ export function CheckInModal({ room, roomPrice, onConfirm, onClose }: CheckInMod
     } else {
       setFormData((prev) => ({ ...prev, [name]: value }));
     }
+    
     if (errors[name as keyof CheckInData]) {
       setErrors((prev) => ({ ...prev, [name]: '' }));
     }
@@ -141,19 +209,83 @@ export function CheckInModal({ room, roomPrice, onConfirm, onClose }: CheckInMod
         {/* Body */}
         <div className="modal-body">
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Guest Name */}
-            <div>
+            {/* Selected Guest Indicator */}
+            {selectedGuest && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-emerald-100 p-2 rounded-lg">
+                      <User size={16} className="text-emerald-600" />
+                    </div>
+                    <div>
+                      <div className="font-medium text-emerald-800">Existing Guest Selected</div>
+                      <div className="text-xs text-emerald-600 mt-0.5">
+                        {selectedGuest.name} • NIC: {selectedGuest.nic_number}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleClearGuest}
+                    className="text-xs bg-rose-100 text-rose-700 hover:bg-rose-200 px-2 py-1 rounded-full transition-colors"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Guest Name with Search */}
+            <div className="relative">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Guest Name <span className="text-rose-500">*</span>
+                <span className="text-gray-400 font-normal ml-2">(type to search existing guests)</span>
               </label>
-              <input
-                type="text"
-                name="guestName"
-                value={formData.guestName}
-                onChange={handleChange}
-                placeholder="Enter full name"
-                className={errors.guestName ? 'border-rose-300 focus:border-rose-500' : ''}
-              />
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                <input
+                  type="text"
+                  name="guestName"
+                  value={formData.guestName}
+                  onChange={handleChange}
+                  placeholder="Enter full name, NIC, or phone number..."
+                  className={`pl-10 w-full ${errors.guestName ? 'border-rose-300 focus:border-rose-500' : ''} ${selectedGuest ? 'bg-emerald-50 border-emerald-200' : ''}`}
+                  disabled={!!selectedGuest}
+                />
+                {isSearching && (
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-emerald-500"></div>
+                  </div>
+                )}
+              </div>
+
+              {/* Search Results Dropdown */}
+              {showResults && searchResults.length > 0 && !selectedGuest && (
+                <div className="absolute z-10 w-full mt-1 backdrop-blur-md bg-white/90 border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+                  <div className="max-h-60 overflow-y-auto">
+                    {searchResults.map((guest) => (
+                      <button
+                        key={guest.id}
+                        type="button"
+                        onClick={() => handleGuestSelect(guest)}
+                        className="w-full text-left px-4 py-3 hover:bg-gray-50/80 border-b border-gray-100 last:border-b-0 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="bg-emerald-100 p-2 rounded-lg">
+                            <User size={16} className="text-emerald-600" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="font-medium text-gray-900">{guest.name}</div>
+                            <div className="text-xs text-gray-500 mt-0.5">
+                              NIC: {guest.nic_number} • Phone: {guest.phone_number}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {errors.guestName && <p className="text-rose-600 text-xs mt-1.5">{errors.guestName}</p>}
             </div>
 
@@ -168,7 +300,8 @@ export function CheckInModal({ room, roomPrice, onConfirm, onClose }: CheckInMod
                 value={formData.phoneNumber}
                 onChange={handleChange}
                 placeholder="+94 7X XXX XXXX"
-                className={errors.phoneNumber ? 'border-rose-300 focus:border-rose-500' : ''}
+                className={`${errors.phoneNumber ? 'border-rose-300 focus:border-rose-500' : ''} ${selectedGuest ? 'bg-emerald-50 border-emerald-200' : ''}`}
+                disabled={!!selectedGuest}
               />
               {errors.phoneNumber && <p className="text-rose-600 text-xs mt-1.5">{errors.phoneNumber}</p>}
             </div>
@@ -184,7 +317,8 @@ export function CheckInModal({ room, roomPrice, onConfirm, onClose }: CheckInMod
                 value={formData.nicNumber}
                 onChange={handleChange}
                 placeholder="National ID number"
-                className={errors.nicNumber ? 'border-rose-300 focus:border-rose-500' : ''}
+                className={`${errors.nicNumber ? 'border-rose-300 focus:border-rose-500' : ''} ${selectedGuest ? 'bg-emerald-50 border-emerald-200' : ''}`}
+                disabled={!!selectedGuest}
               />
               {errors.nicNumber && <p className="text-rose-600 text-xs mt-1.5">{errors.nicNumber}</p>}
             </div>

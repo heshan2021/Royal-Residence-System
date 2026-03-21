@@ -1,3 +1,11 @@
+// Guest interface for guest records
+export interface Guest {
+  id: string;
+  name: string;
+  phone_number: string;
+  nic_number: string;
+}
+
 export interface Room {
   id: string;
   number: string;

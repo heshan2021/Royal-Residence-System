@@ -3,7 +3,7 @@
 // This file contains all database interactions for the receptionist module
 // UI components should only call these functions, never import Drizzle/SQL directly
 
-import { Room, PaymentMethod } from '../../../../types/room';
+import { Room, PaymentMethod, Guest } from '../../../../types/room';
 import { CheckInData } from '../components/CheckInModal';
 
 // Mock database - in production, this would connect to Neon DB (Postgres) via Drizzle
@@ -93,6 +93,17 @@ export async function checkInGuest(roomId: string, checkInData: CheckInData): Pr
   const roomIndex = rooms.findIndex(r => r.id === roomId);
   if (roomIndex === -1) {
     throw new Error(`Room with ID ${roomId} not found`);
+  }
+  
+  // Check if guest already exists by NIC
+  const existingGuest = await findGuestByNic(checkInData.nicNumber);
+  if (!existingGuest) {
+    // Create new guest record
+    await createGuest({
+      name: checkInData.guestName,
+      phone_number: checkInData.phoneNumber,
+      nic_number: checkInData.nicNumber,
+    });
   }
   
   // Calculate total amount based on room price and days
@@ -245,4 +256,106 @@ export async function updateRoom(roomId: string, updates: Partial<Room>): Promis
   
   rooms[roomIndex] = updatedRoom;
   return { ...updatedRoom };
+}
+
+// ============================================================================
+// GUEST MANAGEMENT
+// ============================================================================
+
+/**
+ * Search for guests by name, NIC number, or phone number
+ * @param query - Search query string (partial match)
+ * @returns Promise<Guest[]> - Array of matching guests
+ */
+export async function findGuestByQuery(query: string): Promise<Guest[]> {
+  if (!query || query.trim().length < 2) {
+    return [];
+  }
+  
+  try {
+    const response = await fetch(`/api/guests/search?q=${encodeURIComponent(query)}`);
+    
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error searching guests:', error);
+    return [];
+  }
+}
+
+/**
+ * Find a guest by exact NIC number match
+ * @param nic - NIC number to search
+ * @returns Promise<Guest | null> - Guest object or null if not found
+ */
+export async function findGuestByNic(nic: string): Promise<Guest | null> {
+  try {
+    // We'll search for exact NIC match via the search API
+    const response = await fetch(`/api/guests/search?q=${encodeURIComponent(nic)}`);
+    
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+    
+    const guests = await response.json();
+    // Find exact NIC match
+    const exactMatch = guests.find((guest: Guest) => guest.nic_number === nic.trim());
+    return exactMatch || null;
+  } catch (error) {
+    console.error('Error finding guest by NIC:', error);
+    return null;
+  }
+}
+
+/**
+ * Create a new guest record
+ * @param guestData - Guest data without ID
+ * @returns Promise<Guest> - Created guest object
+ */
+export async function createGuest(guestData: Omit<Guest, 'id'>): Promise<Guest> {
+  try {
+    const response = await fetch('/api/guests/create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(guestData),
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `API error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error creating guest:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get a guest by ID
+ * @param id - Guest ID
+ * @returns Promise<Guest | null> - Guest object or null if not found
+ */
+export async function getGuestById(id: string): Promise<Guest | null> {
+  // Note: We don't have a dedicated API for this yet
+  // For now, we'll return null or implement if needed
+  return null;
+}
+
+/**
+ * Update a guest record
+ * @param id - Guest ID
+ * @param updates - Partial guest updates
+ * @returns Promise<Guest> - Updated guest object
+ */
+export async function updateGuest(id: string, updates: Partial<Omit<Guest, 'id'>>): Promise<Guest> {
+  // Note: We don't have a dedicated API for this yet
+  // For now, we'll throw an error or implement if needed
+  throw new Error('Update guest not implemented with API yet');
 }
