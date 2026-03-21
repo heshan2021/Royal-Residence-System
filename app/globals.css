@@ -1,26 +1,299 @@
+
+.modern-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  background: transparent;
+  position: relative;
+  margin: 0;
+  padding: 0;
+  display: block;
+}
+.modern-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  background: #18181b;
+  border-radius: 2px;
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  transform: translateY(-50%);
+}
+.modern-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #18181b;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+  margin-top: 0;
+  position: relative;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.modern-slider:focus::-webkit-slider-thumb {
+  background: #000;
+  box-shadow: 0 0 0 4px rgba(24,24,27,0.12);
+}
+.modern-slider::-moz-range-track {
+  height: 4px;
+  background: #18181b;
+  border-radius: 2px;
+}
+.modern-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #18181b;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+  border: none;
+}
+.modern-slider:focus::-moz-range-thumb {
+  background: #000;
+  box-shadow: 0 0 0 4px rgba(24,24,27,0.12);
+}
+.modern-slider::-ms-fill-lower {
+  background: #18181b;
+}
+.modern-slider::-ms-fill-upper {
+  background: #18181b;
+}
+.modern-slider::-ms-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #18181b;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+  border: none;
+  position: relative;
+  top: 0;
+}
+.modern-slider:focus::-ms-thumb {
+  background: #000;
+  box-shadow: 0 0 0 4px rgba(24,24,27,0.12);
+}
+.modern-slider::-webkit-slider-thumb:hover {
+  background: #000;
+}
+.modern-slider::-moz-range-thumb:hover {
+  background: #000;
+}
+.modern-slider::-ms-thumb:hover {
+  background: #000;
+}
+.modern-slider:focus {
+  outline: none;
+}
+.modern-slider:active::-webkit-slider-thumb {
+  background: #000;
+}
+.modern-slider:active::-moz-range-thumb {
+  background: #000;
+}
+.modern-slider:active::-ms-thumb {
+  background: #000;
+}
+.modern-slider::-ms-tooltip {
+  display: none;
+}
+/* Short number input for days selector */
+.short-number-input {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  font-size: 1rem;
+  background: #fff;
+  transition: border 0.2s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+.short-number-input:focus {
+  border: 1.5px solid #18181b;
+  outline: none;
+}
+/* Modern black smooth slider */
+.modern-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: #18181b;
+  border-radius: 2px;
+  outline: none;
+  transition: background 0.2s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+.modern-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #18181b;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.modern-slider:focus::-webkit-slider-thumb {
+  background: #000;
+  box-shadow: 0 0 0 4px rgba(24,24,27,0.12);
+}
+.modern-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #18181b;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.modern-slider:focus::-moz-range-thumb {
+  background: #000;
+  box-shadow: 0 0 0 4px rgba(24,24,27,0.12);
+}
+.modern-slider::-ms-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #18181b;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.modern-slider:focus::-ms-thumb {
+  background: #000;
+  box-shadow: 0 0 0 4px rgba(24,24,27,0.12);
+}
+.modern-slider::-webkit-slider-thumb:hover {
+  background: #000;
+}
+.modern-slider::-moz-range-thumb:hover {
+  background: #000;
+}
+.modern-slider::-ms-thumb:hover {
+  background: #000;
+}
+.modern-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  background: #18181b;
+  border-radius: 2px;
+}
+.modern-slider::-ms-fill-lower {
+  background: #18181b;
+}
+.modern-slider::-ms-fill-upper {
+  background: #18181b;
+}
+.modern-slider:focus {
+  outline: none;
+}
+.modern-slider:active::-webkit-slider-thumb {
+  background: #000;
+}
+.modern-slider:active::-moz-range-thumb {
+  background: #000;
+}
+.modern-slider:active::-ms-thumb {
+  background: #000;
+}
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Minimalist monochrome foundation with a soft off-white base */
+  --background: #fafafa;
+  --foreground: #0f172a;
+  --accent: #18181b; 
+  --border: rgba(0, 0, 0, 0.06);
+  --text-secondary: #64748b;
+  
+  /* Refined Glass Properties */
+  --glass-bg: rgba(255, 255, 255, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.8);
+  --glass-shadow: 0 8px 32px -4px rgba(0, 0, 0, 0.04), 0 4px 12px -2px rgba(0, 0, 0, 0.02);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html, body {
+  width: 100%;
+  height: 100%;
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--background);
+  /* A very quiet, static mesh gradient. Much cleaner than heavy animations. */
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(248, 250, 252, 1) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(226, 232, 240, 0.4) 0px, transparent 50%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+#__next, main, .main-content {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+/* =========================================
+   True Minimalist Glassmorphism 
+   ========================================= */
+.glass-card, .modal-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: 1rem;
+  box-shadow: var(--glass-shadow);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  /* Subtle lift and deeper shadow instead of color changes */
+  box-shadow: 0 16px 48px -8px rgba(0, 0, 0, 0.06);
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.75);
+}
+
+/* =========================================
+   Sleek Components 
+   ========================================= */
+
+
+/* =========================================
+   Refined Scrollbar 
+   ========================================= */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
 }
