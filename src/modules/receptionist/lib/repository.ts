@@ -16,7 +16,7 @@ import { CheckInData } from '../components/CheckInModal';
  */
 export async function getAllRooms(): Promise<UIRoom[]> {
   try {
-    const response = await fetch('/api/rooms');
+    const response = await fetch('/api/rooms', { cache: 'no-store' });
     
     if (!response.ok) {
       throw new Error(`API error: ${response.status}`);
@@ -381,7 +381,7 @@ export async function addExpense(amount: number, category: string, description?:
  */
 export async function getTransactionHistory(): Promise<TransactionHistoryItem[]> {
   try {
-    const response = await fetch('/api/transactions');
+    const response = await fetch('/api/transactions', { cache: 'no-store' });
     
     if (!response.ok) {
       throw new Error(`API error: ${response.status}`);

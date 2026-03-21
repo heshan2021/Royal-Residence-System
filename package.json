@@ -10,6 +10,7 @@
     "db:seed": "tsx src/db/seed.ts"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
     "date-fns": "^4.1.0",
     "drizzle-orm": "^0.45.1",
     "lucide-react": "^0.577.0",

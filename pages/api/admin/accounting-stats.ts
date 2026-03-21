@@ -52,6 +52,11 @@ export default async function handler(
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  // Prevent Vercel edge caching - always fetch fresh data
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
   try {
     // Get today's date boundaries (Sri Lanka timezone UTC+5:30)
     const now = new Date();
@@ -95,10 +100,7 @@ export default async function handler(
 
     // ========================================================================
     // 3. Pending Balance: Active bookings total - paid transactions
-    // For active bookings only: SUM(bookings.total_price) - SUM(transactions.amount)
-    // Need to calculate separately to avoid duplication from LEFT JOIN
     // ========================================================================
-    // Get total amount for active bookings
     const activeBookingsResult = await db
       .select({
         totalBookingAmount: sql<number>`COALESCE(SUM(${bookings.totalPrice}), 0)::integer`
@@ -108,7 +110,6 @@ export default async function handler(
     
     const totalBookingAmount = activeBookingsResult[0]?.totalBookingAmount || 0;
     
-    // Get total paid amount for active bookings
     const paidAmountResult = await db
       .select({
         totalPaidAmount: sql<number>`COALESCE(SUM(${transactions.amount}), 0)::integer`
@@ -166,9 +167,6 @@ export default async function handler(
       
       totalExpenses = totalExpensesResult[0]?.total || 0;
 
-      // ========================================================================
-      // 7. Expenses by Category breakdown
-      // ========================================================================
       const expensesByCategoryResult = await db
         .select({
           category: expenses.category,
@@ -181,16 +179,7 @@ export default async function handler(
         expensesByCategory[row.category as keyof ExpensesByCategory] = row.total;
       });
     } catch (error) {
-      // If expenses table doesn't exist yet, use default values
       console.log('Expenses table not available yet, using defaults:', error instanceof Error ? error.message : String(error));
-      totalExpenses = 0;
-      expensesByCategory = {
-        Marketing: 0,
-        Maintenance: 0,
-        'Guest Supplies': 0,
-        Utilities: 0,
-        Other: 0
-      };
     }
 
     // ========================================================================
@@ -199,9 +188,8 @@ export default async function handler(
     const netProfit = totalRevenue - totalExpenses;
 
     // ========================================================================
-    // 8. Monthly Financial Data: Revenue and Expenses by month for current year
+    // 7. Monthly Financial Data
     // ========================================================================
-    // Get monthly revenue
     const monthlyRevenueResult = await db
       .select({
         month: sql<number>`EXTRACT(MONTH FROM ${transactions.createdAt})::integer`,
@@ -212,13 +200,11 @@ export default async function handler(
       .groupBy(sql`EXTRACT(MONTH FROM ${transactions.createdAt})`)
       .orderBy(sql`EXTRACT(MONTH FROM ${transactions.createdAt})`);
 
-    // Create maps for easy lookup
     const revenueMap = new Map<number, number>();
     monthlyRevenueResult.forEach((row) => {
       revenueMap.set(row.month, row.revenue);
     });
 
-    // Get monthly expenses (with error handling in case table doesn't exist)
     const expensesMap = new Map<number, number>();
     try {
       const monthlyExpensesResult = await db
@@ -235,29 +221,26 @@ export default async function handler(
         expensesMap.set(row.month, row.expenses);
       });
     } catch (error) {
-      // If expenses table doesn't exist yet, use empty map
-      console.log('Monthly expenses query failed, using defaults:', error instanceof Error ? error.message : String(error));
+      console.log('Monthly expenses query failed, using defaults');
     }
 
-    // Create full 12-month array with combined financial data
     const monthlyFinancials: MonthlyFinancialItem[] = MONTH_NAMES.map((name, index) => {
       const monthNumber = index + 1;
       const revenue = revenueMap.get(monthNumber) || 0;
-      const expenses = expensesMap.get(monthNumber) || 0;
-      const profit = revenue - expenses;
+      const monthExpenses = expensesMap.get(monthNumber) || 0;
+      const profit = revenue - monthExpenses;
       
       return {
         month: name,
         revenue,
-        expenses,
+        expenses: monthExpenses,
         profit
       };
     });
 
     // ========================================================================
-    // 6. Revenue Growth: % difference between current and last month
+    // 8. Revenue Growth
     // ========================================================================
-    // Get current month total
     const currentMonthResult = await db
       .select({
         total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)::integer`
@@ -271,7 +254,6 @@ export default async function handler(
       );
     const currentMonthTotal = currentMonthResult[0]?.total || 0;
 
-    // Get last month total
     const lastMonthResult = await db
       .select({
         total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)::integer`
@@ -285,17 +267,13 @@ export default async function handler(
       );
     const lastMonthTotal = lastMonthResult[0]?.total || 0;
 
-    // Calculate growth percentage
     let revenueGrowth = 0;
     if (lastMonthTotal > 0) {
       revenueGrowth = ((currentMonthTotal - lastMonthTotal) / lastMonthTotal) * 100;
     } else if (currentMonthTotal > 0) {
-      revenueGrowth = 100; // 100% growth if last month was 0 but this month has revenue
+      revenueGrowth = 100;
     }
 
-    // ========================================================================
-    // Return all stats
-    // ========================================================================
     return res.status(200).json({
       totalRevenue,
       totalExpenses,
@@ -305,7 +283,7 @@ export default async function handler(
       paymentMethodSplit,
       monthlyFinancials,
       expensesByCategory,
-      revenueGrowth: Math.round(revenueGrowth * 10) / 10, // Round to 1 decimal
+      revenueGrowth: Math.round(revenueGrowth * 10) / 10,
       currentMonthTotal,
       lastMonthTotal
     });
