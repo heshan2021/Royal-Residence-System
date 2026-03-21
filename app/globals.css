@@ -216,10 +216,10 @@ input[type="text"]:disabled {
   cursor: not-allowed;
 }
 
-/* Number input - compact style */
+/* Number input - compact style with visible spinners */
 .short-number-input {
-  width: 70px;
-  padding: 0.5rem 0.75rem;
+  width: 80px;
+  padding: 0.5rem 0.5rem;
   font-size: 0.9375rem;
   font-weight: 500;
   text-align: center;
@@ -229,13 +229,6 @@ input[type="text"]:disabled {
   border-radius: 10px;
   transition: all var(--transition-fast);
   outline: none;
-  -moz-appearance: textfield;
-}
-
-.short-number-input::-webkit-outer-spin-button,
-.short-number-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
 }
 
 .short-number-input:focus {
