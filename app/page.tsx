@@ -108,13 +108,13 @@ export default function Dashboard() {
     <main className="min-h-screen">
       {/* Header */}
       <header className="bg-white border-b border-gray-100">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 py-8">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
                 Royal Residence
               </h1>
-              <p className="text-sm text-gray-500 mt-0.5">
+              <p className="text-sm text-gray-500 mt-1">
                 Receptionist Dashboard
               </p>
             </div>
@@ -126,9 +126,9 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 py-12">
         {/* Stats Section */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-16">
           {/* Total Rooms */}
           <div className="stats-card group">
             <div className="flex items-start justify-between">
@@ -170,16 +170,16 @@ export default function Dashboard() {
         </div>
 
         {/* Rooms Section */}
-        <div className="space-y-8">
+        <div className="space-y-12">
           {/* Floor 3 */}
           <section>
-            <div className="flex items-center gap-3 mb-4">
+            <div className="flex items-center gap-4 mb-6">
               <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">
                 Floor 3
               </h2>
               <div className="flex-1 h-px bg-gray-200" />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {rooms.filter(r => r.number.startsWith('3')).map(room => (
                 <RoomCard
                   key={room.id}
@@ -192,13 +192,13 @@ export default function Dashboard() {
 
           {/* Floor 2 */}
           <section>
-            <div className="flex items-center gap-3 mb-4">
+            <div className="flex items-center gap-4 mb-6">
               <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">
                 Floor 2
               </h2>
               <div className="flex-1 h-px bg-gray-200" />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {rooms.filter(r => r.number.startsWith('2')).map(room => (
                 <RoomCard
                   key={room.id}
@@ -211,13 +211,13 @@ export default function Dashboard() {
 
           {/* Floor 1 */}
           <section>
-            <div className="flex items-center gap-3 mb-4">
+            <div className="flex items-center gap-4 mb-6">
               <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">
                 Floor 1
               </h2>
               <div className="flex-1 h-px bg-gray-200" />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {rooms.filter(r => r.number === '101').map(room => (
                 <RoomCard
                   key={room.id}
