@@ -77,7 +77,7 @@ export function CheckInModal({ room, onConfirm, onClose }: CheckInModalProps) {
   };
 
   const validateForm = (): boolean => {
-    const newErrors: Partial<CheckInData> = {};
+    const newErrors: Partial<Record<keyof CheckInData, string>> = {};
 
     if (!formData.guestName.trim()) newErrors.guestName = 'Guest name is required';
     if (!formData.phoneNumber.trim()) newErrors.phoneNumber = 'Phone number is required';
