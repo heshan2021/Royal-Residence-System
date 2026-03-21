@@ -3,13 +3,15 @@
 // Uses Drizzle ORM for all aggregate calculations
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { db, transactions, bookings } from '../../../src/db';
+import { db, transactions, bookings, expenses } from '../../../src/db';
 import { eq, sql, and, gte, lt } from 'drizzle-orm';
 
 // Type definitions for API response
-export interface MonthlySalesItem {
+export interface MonthlyFinancialItem {
   month: string;
-  total: number;
+  revenue: number;
+  expenses: number;
+  profit: number;
 }
 
 export interface PaymentMethodSplit {
@@ -17,12 +19,23 @@ export interface PaymentMethodSplit {
   bank: number;
 }
 
+export interface ExpensesByCategory {
+  Marketing: number;
+  Maintenance: number;
+  'Guest Supplies': number;
+  Utilities: number;
+  Other: number;
+}
+
 export interface AccountingStats {
   totalRevenue: number;
+  totalExpenses: number;
+  netProfit: number;
   todayCollection: number;
   pendingBalance: number;
   paymentMethodSplit: PaymentMethodSplit;
-  monthlySalesData: MonthlySalesItem[];
+  monthlyFinancials: MonthlyFinancialItem[];
+  expensesByCategory: ExpensesByCategory;
   revenueGrowth: number;
   currentMonthTotal: number;
   lastMonthTotal: number;
@@ -133,28 +146,113 @@ export default async function handler(
     });
 
     // ========================================================================
-    // 5. Monthly Sales Data: Group by month for current year
+    // 5. Total Expenses: SUM of all expense amounts
     // ========================================================================
-    const monthlySalesResult = await db
+    let totalExpenses = 0;
+    let expensesByCategory: ExpensesByCategory = {
+      Marketing: 0,
+      Maintenance: 0,
+      'Guest Supplies': 0,
+      Utilities: 0,
+      Other: 0
+    };
+
+    try {
+      const totalExpensesResult = await db
+        .select({
+          total: sql<number>`COALESCE(SUM(${expenses.amount}), 0)::integer`
+        })
+        .from(expenses);
+      
+      totalExpenses = totalExpensesResult[0]?.total || 0;
+
+      // ========================================================================
+      // 7. Expenses by Category breakdown
+      // ========================================================================
+      const expensesByCategoryResult = await db
+        .select({
+          category: expenses.category,
+          total: sql<number>`COALESCE(SUM(${expenses.amount}), 0)::integer`
+        })
+        .from(expenses)
+        .groupBy(expenses.category);
+
+      expensesByCategoryResult.forEach((row) => {
+        expensesByCategory[row.category as keyof ExpensesByCategory] = row.total;
+      });
+    } catch (error) {
+      // If expenses table doesn't exist yet, use default values
+      console.log('Expenses table not available yet, using defaults:', error instanceof Error ? error.message : String(error));
+      totalExpenses = 0;
+      expensesByCategory = {
+        Marketing: 0,
+        Maintenance: 0,
+        'Guest Supplies': 0,
+        Utilities: 0,
+        Other: 0
+      };
+    }
+
+    // ========================================================================
+    // 6. Net Profit: Total Revenue - Total Expenses
+    // ========================================================================
+    const netProfit = totalRevenue - totalExpenses;
+
+    // ========================================================================
+    // 8. Monthly Financial Data: Revenue and Expenses by month for current year
+    // ========================================================================
+    // Get monthly revenue
+    const monthlyRevenueResult = await db
       .select({
         month: sql<number>`EXTRACT(MONTH FROM ${transactions.createdAt})::integer`,
-        total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)::integer`
+        revenue: sql<number>`COALESCE(SUM(${transactions.amount}), 0)::integer`
       })
       .from(transactions)
       .where(sql`EXTRACT(YEAR FROM ${transactions.createdAt}) = ${currentYear}`)
       .groupBy(sql`EXTRACT(MONTH FROM ${transactions.createdAt})`)
       .orderBy(sql`EXTRACT(MONTH FROM ${transactions.createdAt})`);
 
-    // Create full 12-month array with zeros for missing months
-    const monthlyDataMap = new Map<number, number>();
-    monthlySalesResult.forEach((row) => {
-      monthlyDataMap.set(row.month, row.total);
+    // Create maps for easy lookup
+    const revenueMap = new Map<number, number>();
+    monthlyRevenueResult.forEach((row) => {
+      revenueMap.set(row.month, row.revenue);
     });
 
-    const monthlySalesData: MonthlySalesItem[] = MONTH_NAMES.map((name, index) => ({
-      month: name,
-      total: monthlyDataMap.get(index + 1) || 0
-    }));
+    // Get monthly expenses (with error handling in case table doesn't exist)
+    const expensesMap = new Map<number, number>();
+    try {
+      const monthlyExpensesResult = await db
+        .select({
+          month: sql<number>`EXTRACT(MONTH FROM ${expenses.expenseDate})::integer`,
+          expenses: sql<number>`COALESCE(SUM(${expenses.amount}), 0)::integer`
+        })
+        .from(expenses)
+        .where(sql`EXTRACT(YEAR FROM ${expenses.expenseDate}) = ${currentYear}`)
+        .groupBy(sql`EXTRACT(MONTH FROM ${expenses.expenseDate})`)
+        .orderBy(sql`EXTRACT(MONTH FROM ${expenses.expenseDate})`);
+
+      monthlyExpensesResult.forEach((row) => {
+        expensesMap.set(row.month, row.expenses);
+      });
+    } catch (error) {
+      // If expenses table doesn't exist yet, use empty map
+      console.log('Monthly expenses query failed, using defaults:', error instanceof Error ? error.message : String(error));
+    }
+
+    // Create full 12-month array with combined financial data
+    const monthlyFinancials: MonthlyFinancialItem[] = MONTH_NAMES.map((name, index) => {
+      const monthNumber = index + 1;
+      const revenue = revenueMap.get(monthNumber) || 0;
+      const expenses = expensesMap.get(monthNumber) || 0;
+      const profit = revenue - expenses;
+      
+      return {
+        month: name,
+        revenue,
+        expenses,
+        profit
+      };
+    });
 
     // ========================================================================
     // 6. Revenue Growth: % difference between current and last month
@@ -200,10 +298,13 @@ export default async function handler(
     // ========================================================================
     return res.status(200).json({
       totalRevenue,
+      totalExpenses,
+      netProfit,
       todayCollection,
       pendingBalance,
       paymentMethodSplit,
-      monthlySalesData,
+      monthlyFinancials,
+      expensesByCategory,
       revenueGrowth: Math.round(revenueGrowth * 10) / 10, // Round to 1 decimal
       currentMonthTotal,
       lastMonthTotal

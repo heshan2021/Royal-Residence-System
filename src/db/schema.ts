@@ -11,6 +11,9 @@ import {
   timestamp,
   boolean,
   jsonb,
+  pgEnum,
+  uuid,
+  text,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -148,3 +151,30 @@ export type NewTransaction = typeof transactions.$inferInsert;
 export type BookingStatus = 'active' | 'completed' | 'cancelled';
 export type PaymentMethod = 'Cash' | 'Bank';
 export type PaymentType = 'advance' | 'final_settlement';
+
+// Expense Category Enum
+export const expenseCategoryEnum = pgEnum('expense_category', [
+  'Marketing',
+  'Maintenance',
+  'Guest Supplies',
+  'Utilities',
+  'Other'
+]);
+
+/**
+ * Expenses Table
+ * Tracks business-wide expenses for accounting and profit calculation
+ */
+export const expenses = pgTable('expenses', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  amount: integer('amount').notNull(), // Amount in LKR
+  category: expenseCategoryEnum('category').notNull(),
+  description: text('description'),
+  expenseDate: timestamp('expense_date').defaultNow(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Expense types
+export type Expense = typeof expenses.$inferSelect;
+export type NewExpense = typeof expenses.$inferInsert;
+export type ExpenseCategory = typeof expenses.$inferSelect.category;

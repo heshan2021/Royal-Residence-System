@@ -331,6 +331,46 @@ export async function updateGuest(id: string, updates: Partial<Omit<UIGuest, 'id
 }
 
 // ============================================================================
+// EXPENSE MANAGEMENT
+// ============================================================================
+
+/**
+ * Add a new business expense
+ * @param amount - Expense amount in LKR
+ * @param category - Expense category (Marketing, Maintenance, Guest Supplies, Utilities, Other)
+ * @param description - Optional description of the expense
+ * @returns Promise<{ id: string; amount: number; category: string; description: string | null; expenseDate: string; createdAt: string }>
+ */
+export async function addExpense(amount: number, category: string, description?: string): Promise<{ 
+  id: string; 
+  amount: number; 
+  category: string; 
+  description: string | null; 
+  expenseDate: string; 
+  createdAt: string 
+}> {
+  try {
+    const response = await fetch('/api/admin/expenses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ amount, category, description }),
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Failed to add expense: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error adding expense:', error);
+    throw error;
+  }
+}
+
+// ============================================================================
 // TRANSACTION HISTORY
 // ============================================================================
 

@@ -8,6 +8,13 @@
       "when": 1774116227057,
       "tag": "0000_noisy_silverclaw",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1774127674006,
+      "tag": "0001_add_expenses_table",
+      "breakpoints": true
     }
   ]
 }

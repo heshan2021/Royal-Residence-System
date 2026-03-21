@@ -5,14 +5,18 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { DollarSign, TrendingUp, Calendar, Clock, AlertCircle, BarChart3, CreditCard, Banknote } from 'lucide-react';
+import { DollarSign, TrendingUp, Calendar, Clock, AlertCircle, BarChart3, CreditCard, Banknote, Plus, PieChart, TrendingDown } from 'lucide-react';
 import TransactionLedger from '../../../src/modules/receptionist/components/TransactionLedger';
 import AccountingPasswordGate from '../../AccountingPasswordGate';
+import AddExpenseModal from './AddExpenseModal';
+import ExpenseLedger from './ExpenseLedger';
 
 // Types for accounting stats
-interface MonthlySalesItem {
+interface MonthlyFinancialItem {
   month: string;
-  total: number;
+  revenue: number;
+  expenses: number;
+  profit: number;
 }
 
 interface PaymentMethodSplit {
@@ -20,12 +24,23 @@ interface PaymentMethodSplit {
   bank: number;
 }
 
+interface ExpensesByCategory {
+  Marketing: number;
+  Maintenance: number;
+  'Guest Supplies': number;
+  Utilities: number;
+  Other: number;
+}
+
 interface AccountingStats {
   totalRevenue: number;
+  totalExpenses: number;
+  netProfit: number;
   todayCollection: number;
   pendingBalance: number;
   paymentMethodSplit: PaymentMethodSplit;
-  monthlySalesData: MonthlySalesItem[];
+  monthlyFinancials: MonthlyFinancialItem[];
+  expensesByCategory: ExpensesByCategory;
   revenueGrowth: number;
   currentMonthTotal: number;
   lastMonthTotal: number;
@@ -95,40 +110,131 @@ function PaymentMethodBar({ cash, bank }: { cash: number; bank: number }) {
   );
 }
 
-// Monthly Sales Bar Chart
-function MonthlySalesChart({ data }: { data: MonthlySalesItem[] }) {
-  const maxValue = Math.max(...data.map(item => item.total));
+// Monthly Financial Chart - Shows Revenue vs Expenses
+function MonthlyFinancialChart({ data }: { data: MonthlyFinancialItem[] }) {
+  const maxValue = Math.max(...data.map(item => Math.max(item.revenue, item.expenses)));
   
   return (
     <div className="bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl p-6 shadow-sm">
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold text-slate-800">Monthly Sales Trend</h3>
+        <h3 className="text-lg font-semibold text-slate-800">Monthly Financial Trend</h3>
         <BarChart3 className="w-5 h-5 text-slate-400" />
       </div>
       <div className="flex items-end justify-between h-48">
         {data.map((item, index) => {
-          const height = maxValue > 0 ? (item.total / maxValue) * 100 : 0;
+          const revenueHeight = maxValue > 0 ? (item.revenue / maxValue) * 100 : 0;
+          const expensesHeight = maxValue > 0 ? (item.expenses / maxValue) * 100 : 0;
           const isCurrentMonth = index === new Date().getMonth();
           
           return (
             <div key={item.month} className="flex flex-col items-center flex-1">
               <div className="text-xs text-slate-500 mb-2">{item.month}</div>
-              <div className="relative w-8">
-                <div 
-                  className={`w-full rounded-t-lg transition-all duration-500 ${
-                    isCurrentMonth ? 'bg-blue-500' : 'bg-slate-300'
-                  }`}
-                  style={{ height: `${height}%` }}
-                ></div>
-                {item.total > 0 && (
-                  <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 text-xs font-medium text-slate-700 bg-white px-2 py-1 rounded shadow-sm border border-slate-200">
-                    LKR {item.total.toLocaleString()}
-                  </div>
-                )}
+              <div className="relative w-12 flex items-end justify-center gap-1">
+                {/* Revenue Bar */}
+                <div className="relative w-5">
+                  <div 
+                    className="w-full rounded-t-lg transition-all duration-500 bg-blue-500"
+                    style={{ height: `${revenueHeight}%` }}
+                  ></div>
+                  {item.revenue > 0 && (
+                    <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 text-xs font-medium text-slate-700 bg-white px-2 py-1 rounded shadow-sm border border-slate-200 whitespace-nowrap">
+                      Rev: LKR {item.revenue.toLocaleString()}
+                    </div>
+                  )}
+                </div>
+                
+                {/* Expenses Bar */}
+                <div className="relative w-5">
+                  <div 
+                    className="w-full rounded-t-lg transition-all duration-500 bg-rose-500"
+                    style={{ height: `${expensesHeight}%` }}
+                  ></div>
+                  {item.expenses > 0 && (
+                    <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 text-xs font-medium text-slate-700 bg-white px-2 py-1 rounded shadow-sm border border-slate-200 whitespace-nowrap">
+                      Exp: LKR {item.expenses.toLocaleString()}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           );
         })}
+      </div>
+      <div className="flex items-center justify-center gap-6 mt-6">
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 bg-blue-500 rounded"></div>
+          <span className="text-sm text-slate-600">Revenue</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 bg-rose-500 rounded"></div>
+          <span className="text-sm text-slate-600">Expenses</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Expenses by Category Chart
+function ExpensesByCategoryChart({ data }: { data: ExpensesByCategory }) {
+  const categories = Object.keys(data) as (keyof ExpensesByCategory)[];
+  const totalExpenses = categories.reduce((sum, category) => sum + data[category], 0);
+  
+  if (totalExpenses === 0) {
+    return (
+      <div className="bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-lg font-semibold text-slate-800">Expenses by Category</h3>
+          <PieChart className="w-5 h-5 text-slate-400" />
+        </div>
+        <div className="text-center py-12">
+          <div className="text-slate-400 mb-2">No expenses recorded yet</div>
+          <p className="text-sm text-slate-500">Add your first expense to see the breakdown</p>
+        </div>
+      </div>
+    );
+  }
+  
+  const colors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6'];
+  
+  return (
+    <div className="bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl p-6 shadow-sm">
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-lg font-semibold text-slate-800">Expenses by Category</h3>
+        <PieChart className="w-5 h-5 text-slate-400" />
+      </div>
+      <div className="space-y-4">
+        {categories.map((category, index) => {
+          const amount = data[category];
+          const percentage = totalExpenses > 0 ? (amount / totalExpenses) * 100 : 0;
+          
+          return (
+            <div key={category} className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-slate-700">{category}</span>
+                <span className="text-sm font-semibold text-slate-800">
+                  LKR {amount.toLocaleString()} ({percentage.toFixed(1)}%)
+                </span>
+              </div>
+              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div 
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{ 
+                    width: `${percentage}%`,
+                    backgroundColor: colors[index % colors.length]
+                  }}
+                ></div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-6 pt-6 border-t border-slate-200">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-slate-700">Total Expenses</span>
+          <span className="text-lg font-bold text-slate-800">
+            LKR {totalExpenses.toLocaleString()}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -140,6 +246,10 @@ function AccountingOverviewContent() {
   const [error, setError] = useState<string | null>(null);
   const [filterDate, setFilterDate] = useState<string>('');
   const [filterMethod, setFilterMethod] = useState<'all' | 'Cash' | 'Bank'>('all');
+  const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
+  const [expenseFilterDate, setExpenseFilterDate] = useState<string>('');
+  const [expenseFilterCategory, setExpenseFilterCategory] = useState<'all' | 'Marketing' | 'Maintenance' | 'Guest Supplies' | 'Utilities' | 'Other'>('all');
+  const [expenseLedgerKey, setExpenseLedgerKey] = useState(0);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -168,6 +278,11 @@ function AccountingOverviewContent() {
     fetchStats();
   };
 
+  const handleExpenseAdded = () => {
+    fetchStats();
+    setExpenseLedgerKey(prev => prev + 1); // Trigger refresh of expense ledger
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -180,152 +295,246 @@ function AccountingOverviewContent() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-slate-50 flex justify-center">
-      <main className="w-full max-w-[1400px] px-10 sm:px-14 lg:px-20 py-12">
-        
-        {/* Header */}
-        <header className="mb-12 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-semibold text-slate-900 tracking-tight">Royal Residence</h1>
-            <p className="text-sm font-medium text-slate-500 uppercase tracking-wider mt-1">Owner's Accounting Overview</p>
-          </div>
-          <button
-            onClick={handleRefresh}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 
-                       border border-slate-200 rounded-lg text-slate-700 transition-all duration-200
-                       disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Clock size={18} className={loading ? 'animate-spin' : ''} />
-            <span>Refresh</span>
-          </button>
-        </header>
-
-        {/* Error state */}
-        {error && (
-          <div className="flex items-center gap-3 p-4 mb-6 bg-red-500/20 border border-red-400/30 rounded-xl">
-            <AlertCircle size={20} className="text-red-300" />
-            <span className="text-red-200">{error}</span>
-          </div>
-        )}
-
-        {/* Top Stats Row */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
-          <MetricCard
-            title="Total Revenue"
-            value={`LKR ${stats?.totalRevenue.toLocaleString() || '0'}`}
-            icon={DollarSign}
-            color="blue"
-          />
-          <MetricCard
-            title="Today's Collection"
-            value={`LKR ${stats?.todayCollection.toLocaleString() || '0'}`}
-            icon={Calendar}
-            color="emerald"
-          />
-          <MetricCard
-            title="Pending Balance"
-            value={`LKR ${stats?.pendingBalance.toLocaleString() || '0'}`}
-            icon={AlertCircle}
-            color="rose"
-          />
-        </div>
-
-        {/* Payment Method Split */}
-        <div className="mb-8">
-          <PaymentMethodBar 
-            cash={stats?.paymentMethodSplit.cash || 0}
-            bank={stats?.paymentMethodSplit.bank || 0}
-          />
-        </div>
-
-        {/* Monthly Sales Analytics */}
-        <div className="mb-12">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-            {/* Monthly Summary */}
-            <div className="bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl p-6 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-slate-800">Monthly Summary</h3>
-                <TrendingUp className="w-5 h-5 text-slate-400" />
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <p className="text-sm text-slate-500 mb-1">Total Sales This Month</p>
-                  <p className="text-2xl font-bold text-slate-800">
-                    LKR {stats?.currentMonthTotal.toLocaleString() || '0'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm text-slate-500 mb-1">Revenue Growth</p>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xl font-bold ${
-                      (stats?.revenueGrowth || 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'
-                    }`}>
-                      {stats?.revenueGrowth || 0 >= 0 ? '+' : ''}{stats?.revenueGrowth || 0}%
-                    </span>
-                    <TrendingUp className={`w-5 h-5 ${
-                      (stats?.revenueGrowth || 0) >= 0 ? 'text-emerald-500' : 'text-rose-500 rotate-180'
-                    }`} />
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">
-                    vs Last Month: LKR {stats?.lastMonthTotal.toLocaleString() || '0'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Monthly Sales Chart */}
-            <div className="lg:col-span-2">
-              <MonthlySalesChart data={stats?.monthlySalesData || []} />
-            </div>
-          </div>
-        </div>
-
-        {/* Transaction Ledger with Filters */}
-        <div className="bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+    <>
+      <div className="min-h-screen w-full bg-slate-50 flex justify-center">
+        <main className="w-full max-w-[1400px] px-10 sm:px-14 lg:px-20 py-12">
+          
+          {/* Header */}
+          <header className="mb-12 flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-slate-800">Transaction Ledger</h3>
-              <p className="text-sm text-slate-500">Complete financial transaction history</p>
+              <h1 className="text-3xl font-semibold text-slate-900 tracking-tight">Royal Residence</h1>
+              <p className="text-sm font-medium text-slate-500 uppercase tracking-wider mt-1">Owner's Accounting Overview</p>
             </div>
-            
-            <div className="flex flex-wrap gap-4">
-              {/* Date Filter */}
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-slate-400" />
-                <input
-                  type="date"
-                  value={filterDate}
-                  onChange={(e) => setFilterDate(e.target.value)}
-                  className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"
-                />
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setShowAddExpenseModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 
+                           text-white rounded-lg transition-all duration-200"
+              >
+                <Plus size={18} />
+                <span>Add Expense</span>
+              </button>
+              <button
+                onClick={handleRefresh}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 
+                           border border-slate-200 rounded-lg text-slate-700 transition-all duration-200
+                           disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Clock size={18} className={loading ? 'animate-spin' : ''} />
+                <span>Refresh</span>
+              </button>
+            </div>
+          </header>
+
+          {/* Error state */}
+          {error && (
+            <div className="flex items-center gap-3 p-4 mb-6 bg-red-500/20 border border-red-400/30 rounded-xl">
+              <AlertCircle size={20} className="text-red-300" />
+              <span className="text-red-200">{error}</span>
+            </div>
+          )}
+
+          {/* Top Stats Row - Updated with Profit & Loss */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
+            <MetricCard
+              title="Total Revenue"
+              value={`LKR ${stats?.totalRevenue.toLocaleString() || '0'}`}
+              icon={DollarSign}
+              color="blue"
+            />
+            <MetricCard
+              title="Total Expenses"
+              value={`LKR ${stats?.totalExpenses.toLocaleString() || '0'}`}
+              icon={TrendingDown}
+              color="rose"
+            />
+            <MetricCard
+              title="Net Profit"
+              value={`LKR ${stats?.netProfit.toLocaleString() || '0'}`}
+              icon={stats?.netProfit && stats.netProfit >= 0 ? TrendingUp : TrendingDown}
+              color={stats?.netProfit && stats.netProfit >= 0 ? 'emerald' : 'rose'}
+            />
+          </div>
+
+          {/* Second Row Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+            <MetricCard
+              title="Today's Collection"
+              value={`LKR ${stats?.todayCollection.toLocaleString() || '0'}`}
+              icon={Calendar}
+              color="emerald"
+            />
+            <MetricCard
+              title="Pending Balance"
+              value={`LKR ${stats?.pendingBalance.toLocaleString() || '0'}`}
+              icon={AlertCircle}
+              color="rose"
+            />
+          </div>
+
+          {/* Payment Method Split */}
+          <div className="mb-8">
+            <PaymentMethodBar 
+              cash={stats?.paymentMethodSplit.cash || 0}
+              bank={stats?.paymentMethodSplit.bank || 0}
+            />
+          </div>
+
+          {/* Financial Analytics */}
+          <div className="mb-12">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+              {/* Monthly Summary */}
+              <div className="bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-slate-800">Monthly Summary</h3>
+                  <TrendingUp className="w-5 h-5 text-slate-400" />
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm text-slate-500 mb-1">Total Sales This Month</p>
+                    <p className="text-2xl font-bold text-slate-800">
+                      LKR {stats?.currentMonthTotal.toLocaleString() || '0'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 mb-1">Revenue Growth</p>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xl font-bold ${
+                        (stats?.revenueGrowth || 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                      }`}>
+                        {stats?.revenueGrowth || 0 >= 0 ? '+' : ''}{stats?.revenueGrowth || 0}%
+                      </span>
+                      <TrendingUp className={`w-5 h-5 ${
+                        (stats?.revenueGrowth || 0) >= 0 ? 'text-emerald-500' : 'text-rose-500 rotate-180'
+                      }`} />
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">
+                      vs Last Month: LKR {stats?.lastMonthTotal.toLocaleString() || '0'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Monthly Financial Chart */}
+              <div className="lg:col-span-2">
+                <MonthlyFinancialChart data={stats?.monthlyFinancials || []} />
+              </div>
+            </div>
+
+            {/* Expenses by Category */}
+            <div className="mb-8">
+              <ExpensesByCategoryChart data={stats?.expensesByCategory || {
+                Marketing: 0,
+                Maintenance: 0,
+                'Guest Supplies': 0,
+                Utilities: 0,
+                Other: 0
+              }} />
+            </div>
+
+            {/* Expense Ledger with Filters */}
+            <div className="bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl p-6 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-800">Expense Ledger</h3>
+                  <p className="text-sm text-slate-500">Complete expense history with category breakdown</p>
+                </div>
+                
+                <div className="flex flex-wrap gap-4">
+                  {/* Date Filter */}
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-slate-400" />
+                    <input
+                      type="date"
+                      value={expenseFilterDate}
+                      onChange={(e) => setExpenseFilterDate(e.target.value)}
+                      className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"
+                    />
+                  </div>
+                  
+                  {/* Category Filter */}
+                  <div className="flex items-center gap-2">
+                    <PieChart className="w-4 h-4 text-slate-400" />
+                    <select
+                      value={expenseFilterCategory}
+                      onChange={(e) => setExpenseFilterCategory(e.target.value as 'all' | 'Marketing' | 'Maintenance' | 'Guest Supplies' | 'Utilities' | 'Other')}
+                      className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"
+                    >
+                      <option value="all">All Categories</option>
+                      <option value="Marketing">Marketing</option>
+                      <option value="Maintenance">Maintenance</option>
+                      <option value="Guest Supplies">Guest Supplies</option>
+                      <option value="Utilities">Utilities</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Expense Ledger Component */}
+              <ExpenseLedger 
+                key={expenseLedgerKey}
+                filterDate={expenseFilterDate}
+                filterCategory={expenseFilterCategory}
+                onRefresh={() => setExpenseLedgerKey(prev => prev + 1)}
+              />
+            </div>
+          </div>
+
+          {/* Transaction Ledger with Filters */}
+          <div className="bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800">Transaction Ledger</h3>
+                <p className="text-sm text-slate-500">Complete financial transaction history</p>
               </div>
               
-              {/* Payment Method Filter */}
-              <div className="flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-slate-400" />
-                <select
-                  value={filterMethod}
-                  onChange={(e) => setFilterMethod(e.target.value as 'all' | 'Cash' | 'Bank')}
-                  className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"
-                >
-                  <option value="all">All Methods</option>
-                  <option value="Cash">Cash Only</option>
-                  <option value="Bank">Bank Only</option>
-                </select>
+              <div className="flex flex-wrap gap-4">
+                {/* Date Filter */}
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-slate-400" />
+                  <input
+                    type="date"
+                    value={filterDate}
+                    onChange={(e) => setFilterDate(e.target.value)}
+                    className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"
+                  />
+                </div>
+                
+                {/* Payment Method Filter */}
+                <div className="flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-slate-400" />
+                  <select
+                    value={filterMethod}
+                    onChange={(e) => setFilterMethod(e.target.value as 'all' | 'Cash' | 'Bank')}
+                    className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white"
+                  >
+                    <option value="all">All Methods</option>
+                    <option value="Cash">Cash Only</option>
+                    <option value="Bank">Bank Only</option>
+                  </select>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Transaction Ledger Component */}
-          <TransactionLedger 
-            filterDate={filterDate}
-            filterMethod={filterMethod}
-            variant="light"
-          />
-        </div>
-      </main>
-    </div>
+            {/* Transaction Ledger Component */}
+            <TransactionLedger 
+              filterDate={filterDate}
+              filterMethod={filterMethod}
+              variant="light"
+            />
+          </div>
+        </main>
+      </div>
+
+      {/* Add Expense Modal */}
+      <AddExpenseModal
+        isOpen={showAddExpenseModal}
+        onClose={() => setShowAddExpenseModal(false)}
+        onExpenseAdded={handleExpenseAdded}
+      />
+    </>
   );
 }
 
