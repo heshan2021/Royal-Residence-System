@@ -10,11 +10,54 @@ import { format } from 'date-fns';
 import { getTransactionHistory } from '../lib/repository';
 import { TransactionHistoryItem } from '../../../../types/room';
 
-export default function TransactionLedger() {
+interface TransactionLedgerProps {
+  filterDate?: string;
+  filterMethod?: 'all' | 'Cash' | 'Bank';
+  variant?: 'dark' | 'light';
+}
+
+export default function TransactionLedger({ filterDate, filterMethod = 'all', variant = 'dark' }: TransactionLedgerProps) {
+  // Determine styling based on variant
+  const isLightVariant = variant === 'light';
+  
+  // Base classes for light vs dark variants
+  const containerClass = isLightVariant 
+    ? 'bg-white border border-slate-200 rounded-2xl p-6 shadow-sm'
+    : 'backdrop-blur-xl bg-white/10 border border-white/20 rounded-2xl p-6 shadow-xl';
+  
+  const textColor = isLightVariant ? 'text-slate-800' : 'text-white';
+  const textMutedColor = isLightVariant ? 'text-slate-600' : 'text-white/60';
+  const textMoreMutedColor = isLightVariant ? 'text-slate-500' : 'text-white/70';
+  const borderColor = isLightVariant ? 'border-slate-200' : 'border-white/10';
+  const hoverBg = isLightVariant ? 'hover:bg-slate-50' : 'hover:bg-white/5';
+  const bgMuted = isLightVariant ? 'bg-slate-100' : 'bg-white/10';
+  const bgPurple = isLightVariant ? 'bg-purple-100' : 'bg-purple-500/20';
+  const textPurple = isLightVariant ? 'text-purple-600' : 'text-purple-300';
+  const textGreen = isLightVariant ? 'text-green-600' : 'text-green-300';
+  const textBlue = isLightVariant ? 'text-blue-600' : 'text-blue-300';
+  const textRed = isLightVariant ? 'text-red-600' : 'text-red-200';
+  const bgRed = isLightVariant ? 'bg-red-50 border-red-200' : 'bg-red-500/20 border-red-400/30';
+  const buttonBg = isLightVariant ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700' : 'bg-white/10 hover:bg-white/20 border-white/20 text-white';
   const [transactions, setTransactions] = useState<TransactionHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Filter transactions based on props
+  const filteredTransactions = transactions.filter((tx) => {
+    // Filter by date if provided
+    if (filterDate && tx.date) {
+      const txDate = new Date(tx.date).toISOString().split('T')[0];
+      if (txDate !== filterDate) return false;
+    }
+    
+    // Filter by payment method if not 'all'
+    if (filterMethod !== 'all' && tx.method !== filterMethod) {
+      return false;
+    }
+    
+    return true;
+  });
 
   // Fetch transaction history
   const fetchTransactions = useCallback(async () => {
@@ -78,8 +121,8 @@ export default function TransactionLedger() {
   // Loading state
   if (loading) {
     return (
-      <div className="backdrop-blur-xl bg-white/10 border border-white/20 rounded-2xl p-8 shadow-xl">
-        <div className="flex items-center justify-center gap-3 text-white/70">
+      <div className={containerClass}>
+        <div className={`flex items-center justify-center gap-3 ${textMoreMutedColor}`}>
           <RefreshCw size={24} className="animate-spin" />
           <span className="text-lg">Loading transaction history...</span>
         </div>
@@ -88,16 +131,16 @@ export default function TransactionLedger() {
   }
 
   return (
-    <div className="backdrop-blur-xl bg-white/10 border border-white/20 rounded-2xl p-6 shadow-xl">
+    <div className={containerClass}>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-purple-500/20 rounded-lg">
-            <Receipt size={24} className="text-purple-300" />
+          <div className={`p-2 ${bgPurple} rounded-lg`}>
+            <Receipt size={24} className={textPurple} />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-white">Transaction Ledger</h2>
-            <p className="text-sm text-white/60">
+            <h2 className={`text-xl font-bold ${textColor}`}>Transaction Ledger</h2>
+            <p className={`text-sm ${textMutedColor}`}>
               {transactions.length} transaction{transactions.length !== 1 ? 's' : ''} recorded
             </p>
           </div>
@@ -106,9 +149,8 @@ export default function TransactionLedger() {
         <button
           onClick={handleRefresh}
           disabled={refreshing}
-          className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 
-                     border border-white/20 rounded-lg text-white transition-all duration-200
-                     disabled:opacity-50 disabled:cursor-not-allowed"
+          className={`flex items-center gap-2 px-4 py-2 ${buttonBg} rounded-lg transition-all duration-200
+                     disabled:opacity-50 disabled:cursor-not-allowed`}
         >
           <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
           <span>Refresh</span>
@@ -117,78 +159,83 @@ export default function TransactionLedger() {
 
       {/* Error state */}
       {error && (
-        <div className="flex items-center gap-3 p-4 mb-4 bg-red-500/20 border border-red-400/30 rounded-xl">
-          <AlertCircle size={20} className="text-red-300" />
-          <span className="text-red-200">{error}</span>
+        <div className={`flex items-center gap-3 p-4 mb-4 ${bgRed} rounded-xl`}>
+          <AlertCircle size={20} className={textRed} />
+          <span className={textRed}>{error}</span>
         </div>
       )}
 
       {/* Empty state */}
-      {!error && transactions.length === 0 && (
-        <div className="text-center py-12 text-white/50">
+      {!error && filteredTransactions.length === 0 && (
+        <div className={`text-center py-12 ${textMoreMutedColor}`}>
           <Receipt size={48} className="mx-auto mb-4 opacity-50" />
-          <p className="text-lg">No transactions recorded yet</p>
-          <p className="text-sm">Transactions will appear here after guest check-ins and check-outs</p>
+          <p className="text-lg">No transactions found</p>
+          <p className="text-sm">
+            {transactions.length === 0 
+              ? 'Transactions will appear here after guest check-ins and check-outs'
+              : 'No transactions match the current filters'
+            }
+          </p>
         </div>
       )}
 
       {/* Transaction table */}
-      {transactions.length > 0 && (
+      {filteredTransactions.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-white/10">
-                <th className="text-left py-3 px-4 text-white/70 font-medium text-sm">Date</th>
-                <th className="text-left py-3 px-4 text-white/70 font-medium text-sm">Guest Name</th>
-                <th className="text-left py-3 px-4 text-white/70 font-medium text-sm">NIC</th>
-                <th className="text-left py-3 px-4 text-white/70 font-medium text-sm">Room</th>
-                <th className="text-right py-3 px-4 text-white/70 font-medium text-sm">Amount</th>
-                <th className="text-center py-3 px-4 text-white/70 font-medium text-sm">Method</th>
-                <th className="text-center py-3 px-4 text-white/70 font-medium text-sm">Type</th>
+              <tr className={`border-b ${borderColor}`}>
+                <th className={`text-left py-3 px-4 ${textMoreMutedColor} font-medium text-sm`}>Date</th>
+                <th className={`text-left py-3 px-4 ${textMoreMutedColor} font-medium text-sm`}>Guest Name</th>
+                <th className={`text-left py-3 px-4 ${textMoreMutedColor} font-medium text-sm`}>NIC</th>
+                <th className={`text-left py-3 px-4 ${textMoreMutedColor} font-medium text-sm`}>Room</th>
+                <th className={`text-right py-3 px-4 ${textMoreMutedColor} font-medium text-sm`}>Amount</th>
+                <th className={`text-center py-3 px-4 ${textMoreMutedColor} font-medium text-sm`}>Method</th>
+                <th className={`text-center py-3 px-4 ${textMoreMutedColor} font-medium text-sm`}>Type</th>
               </tr>
             </thead>
             <tbody>
-              {transactions.map((tx) => (
+              {filteredTransactions.map((tx) => (
                 <tr 
                   key={tx.transactionId}
-                  className="border-b border-white/5 hover:bg-white/5 transition-colors"
+                  className={`border-b ${borderColor} ${hoverBg} transition-colors`}
                 >
                   {/* Date */}
-                  <td className="py-4 px-4 text-white/80 text-sm">
+                  <td className={`py-4 px-4 ${textMoreMutedColor} text-sm`}>
                     {formatDate(tx.date)}
                   </td>
                   
                   {/* Guest Name */}
-                  <td className="py-4 px-4 text-white font-medium">
+                  <td className={`py-4 px-4 ${textColor} font-medium`}>
                     {tx.guestName}
                   </td>
                   
                   {/* NIC */}
-                  <td className="py-4 px-4 text-white/70 text-sm font-mono">
+                  <td className={`py-4 px-4 ${textMutedColor} text-sm font-mono`}>
                     {tx.guestNic}
                   </td>
                   
                   {/* Room */}
                   <td className="py-4 px-4">
-                    <span className="inline-flex items-center justify-center w-10 h-10 
-                                     bg-white/10 rounded-lg text-white font-bold">
+                    <span className={`inline-flex items-center justify-center w-10 h-10 
+                                     ${bgMuted} rounded-lg ${textColor} font-bold`}>
                       {tx.roomNumber}
                     </span>
                   </td>
                   
                   {/* Amount - right aligned with tabular-nums */}
-                  <td className="py-4 px-4 text-right tabular-nums text-green-300 font-semibold">
+                  <td className={`py-4 px-4 text-right tabular-nums ${textGreen} font-semibold`}>
                     LKR {tx.amount.toLocaleString()}
                   </td>
                   
                   {/* Payment Method */}
                   <td className="py-4 px-4 text-center">
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 
-                                     bg-white/10 rounded-full text-white/80 text-sm">
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 
+                                     ${bgMuted} rounded-full ${textMutedColor} text-sm`}>
                       {tx.method === 'Cash' ? (
-                        <Banknote size={14} className="text-green-300" />
+                        <Banknote size={14} className={textGreen} />
                       ) : (
-                        <CreditCard size={14} className="text-blue-300" />
+                        <CreditCard size={14} className={textBlue} />
                       )}
                       {tx.method}
                     </span>
@@ -209,15 +256,16 @@ export default function TransactionLedger() {
       )}
 
       {/* Summary footer */}
-      {transactions.length > 0 && (
-        <div className="mt-6 pt-4 border-t border-white/10 flex justify-between items-center">
-          <span className="text-white/60 text-sm">
-            Showing all {transactions.length} transactions
+      {filteredTransactions.length > 0 && (
+        <div className={`mt-6 pt-4 border-t ${borderColor} flex justify-between items-center`}>
+          <span className={`${textMutedColor} text-sm`}>
+            Showing {filteredTransactions.length} of {transactions.length} transactions
+            {(filterDate || filterMethod !== 'all') && ' (filtered)'}
           </span>
           <div className="text-right">
-            <span className="text-white/60 text-sm">Total Collected: </span>
-            <span className="text-green-300 font-bold tabular-nums text-lg">
-              LKR {transactions.reduce((sum, tx) => sum + tx.amount, 0).toLocaleString()}
+            <span className={`${textMutedColor} text-sm`}>Total Collected: </span>
+            <span className={`${textGreen} font-bold tabular-nums text-lg`}>
+              LKR {filteredTransactions.reduce((sum, tx) => sum + tx.amount, 0).toLocaleString()}
             </span>
           </div>
         </div>

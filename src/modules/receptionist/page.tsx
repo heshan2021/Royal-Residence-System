@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Building2, Users, DoorOpen } from 'lucide-react';
+import { Building2, Users, DoorOpen, DollarSign } from 'lucide-react';
+import Link from 'next/link';
 import { RoomCard } from './components/RoomCard';
 import { CheckInModal, CheckInData } from './components/CheckInModal';
 import { CheckOutModal } from './components/CheckOutModal';
@@ -102,9 +103,19 @@ export default function ReceptionistDashboard() {
             <h1 className="text-3xl font-semibold text-slate-900 tracking-tight">Royal Residence</h1>
             <p className="text-sm font-medium text-slate-500 uppercase tracking-wider mt-1">Receptionist Dashboard</p>
           </div>
-          <div className="hidden sm:flex items-center gap-2 text-xs font-medium text-slate-500 uppercase tracking-wider bg-white px-4 py-2 rounded-full shadow-sm border border-slate-200">
-            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
-            <span>Live System</span>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/admin/accounting"
+              className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 
+                         border border-slate-200 rounded-lg text-slate-700 transition-all duration-200"
+            >
+              <DollarSign size={18} />
+              <span className="text-sm font-medium">Accounting</span>
+            </Link>
+            <div className="hidden sm:flex items-center gap-2 text-xs font-medium text-slate-500 uppercase tracking-wider bg-white px-4 py-2 rounded-full shadow-sm border border-slate-200">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+              <span>Live System</span>
+            </div>
           </div>
         </header>
 

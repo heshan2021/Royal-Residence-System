@@ -86,6 +86,20 @@ export default async function handler(
         nicNumber: nicNumber,
       }).returning();
       guest = newGuest;
+    } else {
+      // Update existing guest's name and phone if they've changed
+      // This ensures the transaction ledger shows the current guest name
+      if (guest.name !== guestName || guest.phoneNumber !== phoneNumber) {
+        const [updatedGuest] = await db.update(guests)
+          .set({
+            name: guestName,
+            phoneNumber: phoneNumber,
+            updatedAt: new Date(),
+          })
+          .where(eq(guests.id, guest.id))
+          .returning();
+        guest = updatedGuest;
+      }
     }
 
     // 2. Find the room

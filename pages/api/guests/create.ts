@@ -27,8 +27,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     );
 
     if (existingResult.rows.length > 0) {
-      // Return existing guest
+      // Update existing guest's name and phone if they've changed
       const existingGuest = existingResult.rows[0];
+      if (existingGuest.name !== name.trim() || existingGuest.phone_number !== phone_number.trim()) {
+        const updateResult = await query(
+          'UPDATE guests SET name = $1, phone_number = $2, updated_at = NOW() WHERE id = $3 RETURNING id, name, phone_number, nic_number',
+          [name.trim(), phone_number.trim(), existingGuest.id]
+        );
+        const updatedGuest = updateResult.rows[0];
+        return res.status(200).json({
+          id: updatedGuest.id.toString(),
+          name: updatedGuest.name,
+          phone_number: updatedGuest.phone_number,
+          nic_number: updatedGuest.nic_number,
+        });
+      }
+      // Return existing guest if no changes
       return res.status(200).json({
         id: existingGuest.id.toString(),
         name: existingGuest.name,
