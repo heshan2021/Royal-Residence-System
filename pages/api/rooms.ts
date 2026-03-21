@@ -1,14 +1,67 @@
-// Example usage of Neon client in an API route
+// pages/api/rooms.ts
+// API endpoint to get all rooms with booking and payment information
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { query } from '../../lib/neonClient';
+import { db, rooms, bookings, transactions } from '../../src/db';
+import { eq, and, sum } from 'drizzle-orm';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   try {
-    // Example: Fetch all rooms from a 'rooms' table
-    const result = await query('SELECT * FROM rooms');
-    return res.status(200).json(result.rows);
+    // Get all rooms
+    const allRooms = await db.query.rooms.findMany({
+      orderBy: (rooms, { asc }) => [asc(rooms.number)],
+    });
+
+    // For each occupied room, get the active booking and total paid amount
+    const roomsWithPayments = await Promise.all(
+      allRooms.map(async (room) => {
+        let totalAmount = 0;
+        let paidAmount = 0;
+
+        if (room.isOccupied) {
+          // Find active booking
+          const activeBooking = await db.query.bookings.findFirst({
+            where: and(
+              eq(bookings.roomId, room.id),
+              eq(bookings.status, 'active')
+            ),
+          });
+
+          if (activeBooking) {
+            totalAmount = activeBooking.totalPrice;
+
+            // Get sum of all transactions for this booking
+            const paymentsResult = await db
+              .select({ total: sum(transactions.amount) })
+              .from(transactions)
+              .where(eq(transactions.bookingId, activeBooking.id));
+
+            paidAmount = Number(paymentsResult[0]?.total) || 0;
+          }
+        }
+
+        return {
+          id: `room-${room.number}`,
+          number: room.number,
+          price: room.price ? parseFloat(room.price) : null,
+          amenities: room.amenities || [],
+          isOccupied: room.isOccupied || false,
+          guestName: room.guestName,
+          phoneNumber: room.phoneNumber,
+          nicNumber: room.nicNumber,
+          checkOutTime: room.checkOutTime?.toISOString(),
+          totalAmount,
+          paidAmount,
+        };
+      })
+    );
+
+    return res.status(200).json(roomsWithPayments);
   } catch (error) {
-    console.error(error);
+    console.error('Error fetching rooms:', error);
     return res.status(500).json({ error: 'Database error' });
   }
 }

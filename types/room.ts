@@ -24,3 +24,15 @@ export interface Room {
 
 // Payment method type for reuse
 export type PaymentMethod = 'Cash' | 'Bank';
+
+// Transaction history item for ledger display
+export interface TransactionHistoryItem {
+  transactionId: number;
+  amount: number;
+  method: string;
+  type: string;
+  date: string | null;
+  guestName: string;
+  guestNic: string;
+  roomNumber: string;
+}
