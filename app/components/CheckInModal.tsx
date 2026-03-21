@@ -48,7 +48,7 @@ export function CheckInModal({ room, onConfirm, onClose }: CheckInModalProps) {
     kids: 0,
   });
 
-  const [errors, setErrors] = useState<Partial<CheckInData>>({});
+  const [errors, setErrors] = useState<Partial<Record<keyof CheckInData, string>>>({});
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
