@@ -1,25 +1,18 @@
 // src/db/index.ts
 // Drizzle ORM Client for Neon PostgreSQL
 // This file provides the database connection for all Drizzle operations
+// Uses @neondatabase/serverless for Vercel compatibility
 
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { Pool } from 'pg';
+import { drizzle } from 'drizzle-orm/neon-http';
+import { neon } from '@neondatabase/serverless';
 import * as schema from './schema';
 
-// Create PostgreSQL pool using Neon connection string
-const pool = new Pool({
-  connectionString: process.env.NEON_DATABASE_URL!,
-  ssl: {
-    rejectUnauthorized: false, // Required for Neon
-  },
-});
+// Create Neon HTTP client - works in serverless environments (Vercel)
+const sql = neon(process.env.NEON_DATABASE_URL!);
 
 // Create Drizzle instance with schema
 // This enables type-safe queries with relation support
-export const db = drizzle(pool, { schema });
-
-// Export pool for raw queries if needed (legacy support)
-export { pool };
+export const db = drizzle(sql, { schema });
 
 // Export all schema types and tables for convenience
 export * from './schema';
