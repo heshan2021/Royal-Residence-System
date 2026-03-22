@@ -4,53 +4,55 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { db, rooms, guests, bookings, transactions } from '../../../src/db';
-import { eq } from 'drizzle-orm';
+import { eq, and, or, lt, gt, lte, gte, isNull } from 'drizzle-orm';
 
 interface CheckInRequest {
   roomNumber: string;
   guestName: string;
   phoneNumber: string;
   nicNumber: string;
-  checkOutTime: string;
+  checkInDate: string; // Date-only string (YYYY-MM-DD)
+  checkOutDate: string; // Date-only string (YYYY-MM-DD)
   totalAmount: number;
   advancePayment?: number;
   paymentMethod?: 'Cash' | 'Bank';
 }
 
 /**
- * Parse checkout time string in format "HH:MM DD/MM/YYYY" to Date object
- * Example: "14:30 22/03/2026" -> Date object
+ * Standardize hotel times to ensure 3-hour turnaround window
+ * Check-In Time: 14:00:00 (2:00 PM)
+ * Check-Out Time: 11:00:00 (11:00 AM)
+ * 
+ * @param dateStr Date-only string in format YYYY-MM-DD
+ * @param isCheckIn Whether to add check-in time (14:00) or check-out time (11:00)
+ * @returns Date object with standardized time
  */
-function parseCheckOutTime(checkOutTimeStr: string): Date {
-  // Expected format: "HH:MM DD/MM/YYYY"
-  const parts = checkOutTimeStr.trim().split(' ');
-  
-  if (parts.length !== 2) {
-    // Try parsing as ISO string or other standard format
-    const date = new Date(checkOutTimeStr);
-    if (!isNaN(date.getTime())) {
-      return date;
-    }
-    throw new Error(`Invalid checkout time format: ${checkOutTimeStr}`);
-  }
-  
-  const [time, dateStr] = parts;
-  const [hours, minutes] = time.split(':').map(Number);
-  const [day, month, year] = dateStr.split('/').map(Number);
-  
-  // Validate parsed values
-  if (isNaN(hours) || isNaN(minutes) || isNaN(day) || isNaN(month) || isNaN(year)) {
-    throw new Error(`Invalid checkout time format: ${checkOutTimeStr}`);
-  }
-  
-  // Create date (month is 0-indexed in JavaScript)
-  const date = new Date(year, month - 1, day, hours, minutes, 0, 0);
-  
-  if (isNaN(date.getTime())) {
-    throw new Error(`Invalid checkout time format: ${checkOutTimeStr}`);
-  }
-  
+function addHotelTime(dateStr: string, isCheckIn: boolean): Date {
+  // Use local time in Sri Lanka (Asia/Colombo, UTC+5:30)
+  // Append time without timezone to avoid UTC conversion issues
+  const time = isCheckIn ? '14:00:00' : '11:00:00';
+  // Create date in local timezone
+  const date = new Date(`${dateStr}T${time}`);
   return date;
+}
+
+/**
+ * Format date for display with Sri Lanka timezone
+ * @param date Date object
+ * @returns Formatted string like "March 25 (2:00 PM)"
+ */
+function formatHotelDate(date: Date, isCheckIn: boolean): string {
+  const options: Intl.DateTimeFormatOptions = {
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Asia/Colombo'
+  };
+  
+  const formatted = date.toLocaleDateString('en-US', options);
+  return formatted;
 }
 
 export default async function handler(
@@ -67,7 +69,8 @@ export default async function handler(
       guestName,
       phoneNumber,
       nicNumber,
-      checkOutTime,
+      checkInDate,
+      checkOutDate,
       totalAmount,
       advancePayment,
       paymentMethod,
@@ -111,15 +114,65 @@ export default async function handler(
       return res.status(404).json({ error: `Room ${roomNumber} not found` });
     }
 
-    if (room.isOccupied) {
-      return res.status(400).json({ error: `Room ${roomNumber} is already occupied` });
+    // Standardize hotel times: Check-in at 2:00 PM, Check-out at 11:00 AM
+    const standardizedCheckIn = addHotelTime(checkInDate, true); // 14:00:00
+    const standardizedCheckOut = addHotelTime(checkOutDate, false); // 11:00:00
+
+    // Check for overlapping bookings (double booking prevention)
+    // Find any active booking that overlaps with the requested dates
+    // Two date ranges [A1, A2] and [B1, B2] overlap if: A1 < B2 AND A2 > B1
+    // We check all cases to ensure proper overlap detection including future bookings
+    const overlappingBooking = await db.query.bookings.findFirst({
+      where: and(
+        eq(bookings.roomId, room.id),
+        eq(bookings.status, 'active'),
+        or(
+          // Case 1: Standard overlaps (both bookings have check-out dates)
+          // Existing booking overlaps if: existing_checkIn < new_checkOut AND existing_checkOut > new_checkIn
+          and(
+            lt(bookings.checkInDate, standardizedCheckOut),
+            gt(bookings.checkOutDate, standardizedCheckIn)
+          ),
+          // Case 2: Existing booking is long-term (no check-out date) - conflicts if new booking doesn't end before it starts
+          and(
+            lte(bookings.checkInDate, standardizedCheckOut),
+            isNull(bookings.checkOutDate)
+          ),
+          // Case 3: New booking would overlap with a future booking
+          // (existing booking starts during or after new booking's period but before new checkout)
+          and(
+            gte(bookings.checkInDate, standardizedCheckIn),
+            lt(bookings.checkInDate, standardizedCheckOut)
+          )
+        )
+      ),
+    });
+
+    if (overlappingBooking) {
+      // Format the overlapping booking dates for display
+      const existingCheckIn = overlappingBooking.checkInDate;
+      const existingCheckOut = overlappingBooking.checkOutDate;
+      
+      let errorMessage = `Room ${roomNumber} is already booked`;
+      
+      if (existingCheckOut) {
+        errorMessage += ` from ${formatHotelDate(existingCheckIn, true)} to ${formatHotelDate(existingCheckOut, false)}`;
+      } else {
+        errorMessage += ` from ${formatHotelDate(existingCheckIn, true)} (long-term stay, no check-out date)`;
+      }
+      
+      return res.status(400).json({ 
+        error: errorMessage,
+        details: 'Please select different dates or a different room'
+      });
     }
 
-    // 3. Create booking record
+    // 3. Create booking record with standardized hotel times
     const [booking] = await db.insert(bookings).values({
       guestId: guest.id,
       roomId: room.id,
-      checkInDate: new Date(),
+      checkInDate: standardizedCheckIn,
+      checkOutDate: standardizedCheckOut,
       totalPrice: totalAmount,
       status: 'active',
     }).returning();
@@ -141,7 +194,7 @@ export default async function handler(
         guestName: guestName,
         phoneNumber: phoneNumber,
         nicNumber: nicNumber,
-        checkOutTime: parseCheckOutTime(checkOutTime),
+        checkOutTime: new Date(checkOutDate),
         updatedAt: new Date(),
       })
       .where(eq(rooms.id, room.id))

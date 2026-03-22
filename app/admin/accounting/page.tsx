@@ -5,7 +5,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { DollarSign, TrendingUp, Calendar, Clock, AlertCircle, BarChart3, CreditCard, Banknote, Plus, PieChart, TrendingDown } from 'lucide-react';
+import { DollarSign, TrendingUp, Calendar, Clock, AlertCircle, BarChart3, CreditCard, Banknote, Plus, PieChart, TrendingDown, Download, FileSpreadsheet } from 'lucide-react';
 import TransactionLedger from '../../../src/modules/receptionist/components/TransactionLedger';
 import AccountingPasswordGate from '../../AccountingPasswordGate';
 import AddExpenseModal from './AddExpenseModal';
@@ -240,6 +240,12 @@ function ExpensesByCategoryChart({ data }: { data: ExpensesByCategory }) {
   );
 }
 
+// Month names for report selector
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
 function AccountingOverviewContent() {
   const [stats, setStats] = useState<AccountingStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -250,6 +256,12 @@ function AccountingOverviewContent() {
   const [expenseFilterDate, setExpenseFilterDate] = useState<string>('');
   const [expenseFilterCategory, setExpenseFilterCategory] = useState<'all' | 'Marketing' | 'Maintenance' | 'Guest Supplies' | 'Utilities' | 'Other'>('all');
   const [expenseLedgerKey, setExpenseLedgerKey] = useState(0);
+  
+  // Monthly Report Export State
+  const currentDate = new Date();
+  const [reportMonth, setReportMonth] = useState(currentDate.getMonth() + 1); // 1-indexed
+  const [reportYear, setReportYear] = useState(currentDate.getFullYear());
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -283,6 +295,41 @@ function AccountingOverviewContent() {
     setExpenseLedgerKey(prev => prev + 1); // Trigger refresh of expense ledger
   };
 
+  // Handle monthly report CSV download
+  const handleDownloadReport = async () => {
+    setIsDownloading(true);
+    try {
+      const response = await fetch(`/api/admin/monthly-report?month=${reportMonth}&year=${reportYear}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate report');
+      }
+      
+      // Get the blob from the response
+      const blob = await response.blob();
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Royal_Residence_Accounting_${MONTH_NAMES[reportMonth - 1]}_${reportYear}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      
+      // Cleanup
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('Download error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to download report');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  // Generate year options (current year and 5 years back)
+  const yearOptions = Array.from({ length: 6 }, (_, i) => currentDate.getFullYear() - i);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -306,6 +353,50 @@ function AccountingOverviewContent() {
               <p className="text-sm font-medium text-slate-500 uppercase tracking-wider mt-1">Owner's Accounting Overview</p>
             </div>
             <div className="flex items-center gap-4">
+              {/* Monthly Report Export Section - Compact Design */}
+              <div className="flex items-center gap-2 bg-white/80 backdrop-blur-xl border border-slate-200 rounded-lg p-2">
+                <FileSpreadsheet className="w-4 h-4 text-slate-500" />
+                <div className="flex items-center gap-2">
+                  {/* Month Selector */}
+                  <select
+                    value={reportMonth}
+                    onChange={(e) => setReportMonth(parseInt(e.target.value))}
+                    className="px-2 py-1 border border-slate-200 rounded text-sm text-slate-700 bg-white min-w-28"
+                  >
+                    {MONTH_NAMES.map((month, index) => (
+                      <option key={month} value={index + 1}>
+                        {month}
+                      </option>
+                    ))}
+                  </select>
+                  
+                  {/* Year Selector */}
+                  <select
+                    value={reportYear}
+                    onChange={(e) => setReportYear(parseInt(e.target.value))}
+                    className="px-2 py-1 border border-slate-200 rounded text-sm text-slate-700 bg-white min-w-20"
+                  >
+                    {yearOptions.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                {/* Download Button */}
+                <button
+                  onClick={handleDownloadReport}
+                  disabled={isDownloading}
+                  className="flex items-center gap-2 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 
+                             text-white rounded text-sm transition-all duration-200
+                             disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Download size={16} className={isDownloading ? 'animate-spin' : ''} />
+                  <span>Export CSV</span>
+                </button>
+              </div>
+              
               <button
                 onClick={() => setShowAddExpenseModal(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 

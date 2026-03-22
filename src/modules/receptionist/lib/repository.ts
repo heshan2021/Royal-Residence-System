@@ -12,11 +12,16 @@ import { CheckInData } from '../components/CheckInModal';
 
 /**
  * Get all rooms from database
+ * @param targetDate - Optional date to check room occupancy for (defaults to current date)
  * @returns Promise<UIRoom[]> - Array of all rooms with payment info
  */
-export async function getAllRooms(): Promise<UIRoom[]> {
+export async function getAllRooms(targetDate?: Date): Promise<UIRoom[]> {
   try {
-    const response = await fetch('/api/rooms', { cache: 'no-store' });
+    const url = targetDate 
+      ? `/api/rooms?date=${targetDate.toISOString().split('T')[0]}`
+      : '/api/rooms';
+    
+    const response = await fetch(url, { cache: 'no-store' });
     
     if (!response.ok) {
       throw new Error(`API error: ${response.status}`);
@@ -89,6 +94,10 @@ export async function checkInGuest(roomId: string, checkInData: CheckInData): Pr
   const totalAmount = roomPrice * (checkInData.days || 1);
   
   try {
+    // Format dates as YYYY-MM-DD (date-only) for API to add standardized hotel times
+    const checkInDateStr = checkInData.checkInDate.toISOString().split('T')[0];
+    const checkOutDateStr = checkInData.checkOutDate.toISOString().split('T')[0];
+    
     const response = await fetch('/api/rooms/checkin', {
       method: 'POST',
       headers: {
@@ -99,7 +108,8 @@ export async function checkInGuest(roomId: string, checkInData: CheckInData): Pr
         guestName: checkInData.guestName,
         phoneNumber: checkInData.phoneNumber,
         nicNumber: checkInData.nicNumber,
-        checkOutTime: checkInData.checkOutTime,
+        checkInDate: checkInDateStr,
+        checkOutDate: checkOutDateStr,
         totalAmount,
         advancePayment: checkInData.advancePayment,
         paymentMethod: checkInData.paymentMethod,
@@ -108,7 +118,10 @@ export async function checkInGuest(roomId: string, checkInData: CheckInData): Pr
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `Check-in failed: ${response.status}`);
+      // The API now returns detailed error messages with specific booked dates
+      const errorMessage = errorData.error || `Check-in failed: ${response.status}`;
+      // Include details if available, but the main error message should be sufficient
+      throw new Error(errorMessage);
     }
     
     const result = await response.json();
@@ -123,7 +136,7 @@ export async function checkInGuest(roomId: string, checkInData: CheckInData): Pr
       guestName: checkInData.guestName,
       phoneNumber: checkInData.phoneNumber,
       nicNumber: checkInData.nicNumber,
-      checkOutTime: checkInData.checkOutTime,
+      checkOutTime: checkInData.checkOutDate.toISOString(),
       totalAmount,
       paidAmount: checkInData.advancePayment || 0,
       paymentMethod: checkInData.advancePayment ? checkInData.paymentMethod : undefined,
@@ -222,10 +235,11 @@ export async function recordPayment(roomId: string, amount: number, method: Paym
 
 /**
  * Get room statistics
+ * @param targetDate - Optional date to check room occupancy for (defaults to current date)
  * @returns Promise<{ total: number; occupied: number; available: number }>
  */
-export async function getRoomStatistics(): Promise<{ total: number; occupied: number; available: number }> {
-  const rooms = await getAllRooms();
+export async function getRoomStatistics(targetDate?: Date): Promise<{ total: number; occupied: number; available: number }> {
+  const rooms = await getAllRooms(targetDate);
   
   const occupied = rooms.filter(r => r.isOccupied).length;
   const total = rooms.length;
@@ -367,6 +381,56 @@ export async function addExpense(amount: number, category: string, description?:
   } catch (error) {
     console.error('Error adding expense:', error);
     throw error;
+  }
+}
+
+// ============================================================================
+// BOOKING MANAGEMENT
+// ============================================================================
+
+/**
+ * Get upcoming bookings for a specific room
+ * @param roomId - Room ID (format: 'room-302')
+ * @returns Promise<Array<{ checkInDate: string; checkOutDate: string | null; guestName: string }>>
+ */
+export async function getUpcomingBookings(roomId: string): Promise<Array<{ checkInDate: string; checkOutDate: string | null; guestName: string }>> {
+  try {
+    const roomNumber = roomId.replace('room-', '');
+    const response = await fetch(`/api/rooms/${roomNumber}/bookings`, { cache: 'no-store' });
+    
+    if (!response.ok) {
+      // If endpoint doesn't exist yet, return empty array
+      if (response.status === 404) {
+        return [];
+      }
+      throw new Error(`API error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Failed to fetch upcoming bookings:', error);
+    return [];
+  }
+}
+
+/**
+ * Get all active bookings for a specific month
+ * @param year - Year (e.g., 2025)
+ * @param month - Month (1-12)
+ * @returns Promise<Array<{ roomNumber: string; checkInDate: string; checkOutDate: string | null; guestName: string; phoneNumber: string }>>
+ */
+export async function getMonthlyBookings(year: number, month: number): Promise<Array<{ roomNumber: string; checkInDate: string; checkOutDate: string | null; guestName: string; phoneNumber: string }>> {
+  try {
+    const response = await fetch(`/api/bookings/monthly?year=${year}&month=${month}`, { cache: 'no-store' });
+    
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Failed to fetch monthly bookings:', error);
+    return [];
   }
 }
 

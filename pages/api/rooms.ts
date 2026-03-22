@@ -1,8 +1,8 @@
 // pages/api/rooms.ts
 // API endpoint to get all rooms with booking and payment information
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { db, rooms, bookings, transactions } from '../../src/db';
-import { eq, and, sum } from 'drizzle-orm';
+import { db, rooms, bookings, transactions, guests } from '../../src/db';
+import { eq, and, sum, lte, gte, isNull, or } from 'drizzle-orm';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -15,45 +15,90 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   res.setHeader('Expires', '0');
 
   try {
+    // Parse date parameter from query string (format: YYYY-MM-DD)
+    const dateParam = req.query.date as string | undefined;
+    let targetDateStart: Date;
+    let targetDateEnd: Date;
+    
+    if (dateParam) {
+      // Parse the date string and create start/end of day boundaries
+      // This ensures we check for bookings that overlap with ANY part of the target date
+      const [year, month, day] = dateParam.split('-').map(Number);
+      if (!year || !month || !day) {
+        return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+      }
+      // Start of day (00:00:00)
+      targetDateStart = new Date(year, month - 1, day, 0, 0, 0, 0);
+      // End of day (23:59:59.999)
+      targetDateEnd = new Date(year, month - 1, day, 23, 59, 59, 999);
+    } else {
+      // Default to today
+      const now = new Date();
+      targetDateStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      targetDateEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    }
+
     // Get all rooms
     const allRooms = await db.query.rooms.findMany({
       orderBy: (rooms, { asc }) => [asc(rooms.number)],
     });
 
-    // For each occupied room, get the active booking and total paid amount
+    // For each room, check if it's occupied on the target date
     const roomsWithPayments = await Promise.all(
       allRooms.map(async (room) => {
         let totalAmount = 0;
         let paidAmount = 0;
+        let isOccupiedOnTargetDate = false;
+        let guestName: string | undefined;
+        let phoneNumber: string | undefined;
+        let nicNumber: string | undefined;
+        let checkOutTimeDisplay: string | undefined;
 
-        if (room.isOccupied) {
-          // Find active booking
-          const activeBooking = await db.query.bookings.findFirst({
-            where: and(
-              eq(bookings.roomId, room.id),
-              eq(bookings.status, 'active')
-            ),
+        // Check if room is occupied on target date using date range logic:
+        // A room is "Occupied" on targetDate IF there is a booking where:
+        // status = 'active' AND check_in_date <= end_of_target_day AND (check_out_date >= start_of_target_day OR check_out_date IS NULL)
+        // This ensures bookings that start anytime during the day or span over the day are included
+        const activeBookingOnDate = await db.query.bookings.findFirst({
+          where: and(
+            eq(bookings.roomId, room.id),
+            eq(bookings.status, 'active'),
+            lte(bookings.checkInDate, targetDateEnd), // check_in_date <= end of target day
+            or(
+              gte(bookings.checkOutDate, targetDateStart), // check_out_date >= start of target day
+              isNull(bookings.checkOutDate) // OR check_out_date IS NULL
+            )
+          ),
+        });
+
+        if (activeBookingOnDate) {
+          isOccupiedOnTargetDate = true;
+          totalAmount = activeBookingOnDate.totalPrice;
+
+          // Get sum of all transactions for this booking
+          const paymentsResult = await db
+            .select({ total: sum(transactions.amount) })
+            .from(transactions)
+            .where(eq(transactions.bookingId, activeBookingOnDate.id));
+
+          paidAmount = Number(paymentsResult[0]?.total) || 0;
+
+          // Get guest information from the booking
+          const guest = await db.query.guests.findFirst({
+            where: eq(guests.id, activeBookingOnDate.guestId),
           });
 
-          if (activeBooking) {
-            totalAmount = activeBooking.totalPrice;
-
-            // Get sum of all transactions for this booking
-            const paymentsResult = await db
-              .select({ total: sum(transactions.amount) })
-              .from(transactions)
-              .where(eq(transactions.bookingId, activeBooking.id));
-
-            paidAmount = Number(paymentsResult[0]?.total) || 0;
+          if (guest) {
+            guestName = guest.name;
+            phoneNumber = guest.phoneNumber;
+            nicNumber = guest.nicNumber;
           }
-        }
 
-        // Format checkOutTime: if null and occupied, show "Long-term"
-        let checkOutTimeDisplay: string | undefined;
-        if (room.isOccupied) {
-          checkOutTimeDisplay = room.checkOutTime 
-            ? room.checkOutTime.toISOString() 
-            : 'Long-term';
+          // Format checkOutTime
+          if (activeBookingOnDate.checkOutDate) {
+            checkOutTimeDisplay = activeBookingOnDate.checkOutDate.toISOString();
+          } else {
+            checkOutTimeDisplay = 'Long-term';
+          }
         }
 
         return {
@@ -61,10 +106,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           number: room.number,
           price: room.price ? parseFloat(room.price) : null,
           amenities: room.amenities || [],
-          isOccupied: room.isOccupied || false,
-          guestName: room.guestName,
-          phoneNumber: room.phoneNumber,
-          nicNumber: room.nicNumber,
+          isOccupied: isOccupiedOnTargetDate,
+          guestName,
+          phoneNumber,
+          nicNumber,
           checkOutTime: checkOutTimeDisplay,
           totalAmount,
           paidAmount,

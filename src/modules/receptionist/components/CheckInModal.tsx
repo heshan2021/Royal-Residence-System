@@ -8,6 +8,7 @@ import { findGuestByQuery } from '../lib/repository';
 interface CheckInModalProps {
   room: string;
   roomPrice: number;
+  targetDate: Date;
   onConfirm: (data: CheckInData) => void;
   onClose: () => void;
 }
@@ -16,8 +17,8 @@ export interface CheckInData {
   guestName: string;
   phoneNumber: string;
   nicNumber: string;
-  checkInTime: string;
-  checkOutTime: string;
+  checkInDate: Date;
+  checkOutDate: Date;
   days: number;
   adults: number;
   kids: number;
@@ -25,26 +26,41 @@ export interface CheckInData {
   paymentMethod?: PaymentMethod;
 }
 
-export function CheckInModal({ room, roomPrice, onConfirm, onClose }: CheckInModalProps) {
+export function CheckInModal({ room, roomPrice, targetDate, onConfirm, onClose }: CheckInModalProps) {
   function getNowTime() {
     const now = new Date();
     return now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
   }
 
-  function calcCheckout(days: number, checkInTime: string) {
-    const [h, m] = checkInTime.split(':').map(Number);
-    const now = new Date();
-    now.setHours(h, m, 0, 0);
-    now.setDate(now.getDate() + days);
-    return now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' ' + now.toLocaleDateString('en-GB');
+  function calcCheckoutDate(checkInDate: Date, days: number): Date {
+    const checkoutDate = new Date(checkInDate);
+    checkoutDate.setDate(checkoutDate.getDate() + days);
+    return checkoutDate;
   }
 
+  function formatDateForDisplay(date: Date): string {
+    return date.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+  }
+
+  function formatDateTimeForDisplay(date: Date): string {
+    return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) + 
+           ' ' + formatDateForDisplay(date);
+  }
+
+  // Initialize form data with targetDate
+  const initialCheckInDate = new Date(targetDate);
+  const initialCheckOutDate = calcCheckoutDate(initialCheckInDate, 1);
+  
   const [formData, setFormData] = useState({
     guestName: '',
     phoneNumber: '',
     nicNumber: '',
-    checkInTime: getNowTime(),
-    checkOutTime: calcCheckout(1, getNowTime()),
+    checkInDate: initialCheckInDate,
+    checkOutDate: initialCheckOutDate,
     days: 1,
     adults: 1,
     kids: 0,
@@ -131,13 +147,7 @@ export function CheckInModal({ room, roomPrice, onConfirm, onClose }: CheckInMod
       setFormData((prev) => ({
         ...prev,
         days,
-        checkOutTime: calcCheckout(days, prev.checkInTime),
-      }));
-    } else if (name === 'checkInTime') {
-      setFormData((prev) => ({
-        ...prev,
-        checkInTime: value,
-        checkOutTime: calcCheckout(prev.days, value),
+        checkOutDate: calcCheckoutDate(prev.checkInDate, days),
       }));
     } else if (name === 'adults' || name === 'kids') {
       setFormData((prev) => ({ ...prev, [name]: parseInt(value) }));
@@ -161,8 +171,12 @@ export function CheckInModal({ room, roomPrice, onConfirm, onClose }: CheckInMod
     if (!formData.guestName.trim()) newErrors.guestName = 'Guest name is required';
     if (!formData.phoneNumber.trim()) newErrors.phoneNumber = 'Phone number is required';
     if (!formData.nicNumber.trim()) newErrors.nicNumber = 'NIC number is required';
-    if (!formData.checkOutTime.trim()) newErrors.checkOutTime = 'Check-out time is required';
     if (!formData.days || formData.days < 1) newErrors.days = 'Number of days must be at least 1';
+    
+    // Validate dates
+    if (formData.checkOutDate <= formData.checkInDate) {
+      newErrors.checkOutDate = 'Check-out date must be after check-in date';
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -175,8 +189,8 @@ export function CheckInModal({ room, roomPrice, onConfirm, onClose }: CheckInMod
         guestName: formData.guestName,
         phoneNumber: formData.phoneNumber,
         nicNumber: formData.nicNumber,
-        checkInTime: formData.checkInTime,
-        checkOutTime: formData.checkOutTime,
+        checkInDate: formData.checkInDate,
+        checkOutDate: formData.checkOutDate,
         days: formData.days,
         adults: formData.adults,
         kids: formData.kids,
@@ -323,17 +337,27 @@ export function CheckInModal({ room, roomPrice, onConfirm, onClose }: CheckInMod
               {errors.nicNumber && <p className="text-rose-600 text-xs mt-1.5">{errors.nicNumber}</p>}
             </div>
 
-            {/* Check-In Time and Days */}
+            {/* Check-In Date and Days */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Check-In Time
+                  Check-In Date
                 </label>
                 <input
-                  type="time"
-                  name="checkInTime"
-                  value={formData.checkInTime}
-                  onChange={handleChange}
+                  type="date"
+                  name="checkInDate"
+                  value={formData.checkInDate.toISOString().split('T')[0]}
+                  onChange={(e) => {
+                    const newDate = new Date(e.target.value);
+                    if (!isNaN(newDate.getTime())) {
+                      setFormData(prev => ({
+                        ...prev,
+                        checkInDate: newDate,
+                        checkOutDate: calcCheckoutDate(newDate, prev.days),
+                      }));
+                    }
+                  }}
+                  className="w-full"
                 />
               </div>
               <div>
@@ -390,18 +414,21 @@ export function CheckInModal({ room, roomPrice, onConfirm, onClose }: CheckInMod
               </div>
             </div>
 
-            {/* Check-Out Time (calculated) */}
+            {/* Check-Out Date (calculated) */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Check-Out Time
+                Check-Out Date
               </label>
               <input
                 type="text"
-                name="checkOutTime"
-                value={formData.checkOutTime}
+                name="checkOutDate"
+                value={formatDateForDisplay(formData.checkOutDate)}
                 readOnly
                 className="bg-gray-50"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                {formData.days} {formData.days === 1 ? 'day' : 'days'} from check-in date
+              </p>
             </div>
 
             {/* Payment Section */}
