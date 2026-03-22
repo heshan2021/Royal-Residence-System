@@ -52,7 +52,7 @@ export default function AccountingPasswordGate({ children }: { children: React.R
       setAuthState(true);
     } else {
       console.log('Password incorrect');
-      setError(`Incorrect password. You entered: "${input}" (length: ${input.length}), expected: "accounting333"`);
+      setError('Incorrect password. Please try again.');
       setIsLoading(false);
     }
   };
@@ -104,9 +104,6 @@ export default function AccountingPasswordGate({ children }: { children: React.R
                     {error}
                   </p>
                 )}
-                <p className="text-xs text-gray-500 mt-2">
-                  Hint: The password is <code className="bg-gray-100 px-1 py-0.5 rounded">accounting333</code>
-                </p>
               </div>
               
               <button 
