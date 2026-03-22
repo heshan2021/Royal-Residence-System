@@ -25,6 +25,11 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ExpenseResponse[] | ExpenseResponse | { error: string }>
 ) {
+  // Prevent Vercel edge caching - always fetch fresh data
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
   if (req.method === 'GET') {
     try {
       // Get all expenses, ordered by most recent first
@@ -47,7 +52,7 @@ export default async function handler(
     } catch (error) {
       console.error('Error fetching expenses:', error);
       // If table doesn't exist yet, return empty array
-      if (error instanceof Error && error.message.includes('expenses')) {
+      if (error instanceof Error && (error.message.includes('expenses') || error.message.includes('relation') || error.message.includes('table'))) {
         return res.status(200).json([]);
       }
       return res.status(500).json({ 
@@ -94,6 +99,12 @@ export default async function handler(
       return res.status(201).json(response);
     } catch (error) {
       console.error('Error creating expense:', error);
+      // If table doesn't exist yet, return a helpful error
+      if (error instanceof Error && (error.message.includes('expenses') || error.message.includes('relation') || error.message.includes('table'))) {
+        return res.status(400).json({ 
+          error: 'Expenses table not available yet. Please run database migrations first.' 
+        });
+      }
       return res.status(500).json({ 
         error: error instanceof Error ? error.message : 'Failed to create expense' 
       });
