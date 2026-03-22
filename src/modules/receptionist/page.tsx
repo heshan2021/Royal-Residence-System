@@ -1,11 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Building2, Users, DoorOpen, DollarSign } from 'lucide-react';
+import { Building2, Users, DoorOpen, DollarSign, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { RoomCard } from './components/RoomCard';
 import { CheckInModal, CheckInData } from './components/CheckInModal';
 import { CheckOutModal } from './components/CheckOutModal';
+import AddExpenseModal from '../../../app/admin/accounting/AddExpenseModal';
 import { Room } from '../../../types/room';
 import { 
   getAllRooms, 
@@ -21,6 +22,7 @@ export default function ReceptionistDashboard() {
   const [modalType, setModalType] = useState<'checkin' | 'checkout' | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [statistics, setStatistics] = useState({ total: 0, occupied: 0, available: 0 });
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
 
   useEffect(() => {
     loadRooms();
@@ -104,6 +106,14 @@ export default function ReceptionistDashboard() {
             <p className="text-sm font-medium text-slate-500 uppercase tracking-wider mt-1">Receptionist Dashboard</p>
           </div>
           <div className="flex items-center gap-4">
+            <button
+              onClick={() => setShowExpenseModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 
+                         text-white rounded-lg transition-all duration-200"
+            >
+              <Plus size={18} />
+              <span className="text-sm font-medium">Add Expense</span>
+            </button>
             <Link
               href="/admin/accounting"
               className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 
@@ -224,6 +234,16 @@ export default function ReceptionistDashboard() {
           onClose={() => { setModalType(null); setSelectedRoom(null); }}
         />
       )}
+
+      {/* Add Expense Modal */}
+      <AddExpenseModal
+        isOpen={showExpenseModal}
+        onClose={() => setShowExpenseModal(false)}
+        onExpenseAdded={() => {
+          // Expenses added from receptionist dashboard don't need to refresh room data
+          // But we could show a toast notification here if desired
+        }}
+      />
     </div>
   );
 }
