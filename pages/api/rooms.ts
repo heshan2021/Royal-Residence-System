@@ -75,6 +75,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json(roomsWithPayments);
   } catch (error) {
     console.error('Error fetching rooms:', error);
-    return res.status(500).json({ error: 'Database error' });
+    
+    // Provide more helpful error messages
+    let errorMessage = 'Database error';
+    if (error instanceof Error) {
+      if (error.message.includes('NEON_DATABASE_URL')) {
+        errorMessage = 'Database connection not configured. Please set NEON_DATABASE_URL environment variable.';
+      } else if (error.message.includes('relation') || error.message.includes('table')) {
+        errorMessage = 'Database tables not found. Please run database migrations.';
+      } else {
+        errorMessage = error.message;
+      }
+    }
+    
+    return res.status(500).json({ 
+      error: errorMessage,
+      details: error instanceof Error ? error.stack : 'Unknown error'
+    });
   }
 }
