@@ -18,7 +18,7 @@ export default defineConfig({
   // Database connection configuration
   dbCredentials: {
     // This will now successfully pull from .env.local!
-    url: process.env.NEON_DATABASE_URL!,
+    url: process.env.NEXT_PUBLIC_NEON_DATABASE_URL!,
   },
   
   // Verbose output for debugging
