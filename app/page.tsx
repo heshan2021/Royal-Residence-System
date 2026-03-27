@@ -33,22 +33,36 @@ export interface InitialData {
 // Server-side data fetching function
 async function fetchInitialData(targetDate: Date): Promise<InitialData> {
   // Get base URL for API calls (server-side)
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
-                  process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 
-                  'http://localhost:3000';
+  // On Vercel, we can use relative URLs for internal API calls
+  // For server-side fetching within the same app, we should use the internal host
+  const isVercel = process.env.VERCEL === '1';
+  let baseUrl: string;
+  
+  if (process.env.NEXT_PUBLIC_BASE_URL) {
+    baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+  } else if (isVercel) {
+    // On Vercel, use the Vercel URL or default to relative URL
+    baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '';
+  } else {
+    baseUrl = 'http://localhost:3000';
+  }
   
   const dateStr = targetDate.toISOString().split('T')[0];
   const year = targetDate.getFullYear();
   const month = targetDate.getMonth() + 1; // JavaScript months are 0-indexed
   
   try {
+    // Construct API URLs - use relative URLs if baseUrl is empty (Vercel internal calls)
+    const roomsUrl = baseUrl ? `${baseUrl}/api/rooms?date=${dateStr}` : `/api/rooms?date=${dateStr}`;
+    const bookingsUrl = baseUrl ? `${baseUrl}/api/bookings/monthly?year=${year}&month=${month}` : `/api/bookings/monthly?year=${year}&month=${month}`;
+    
     // Fetch rooms and monthly bookings in parallel
     const [roomsResponse, bookingsResponse] = await Promise.all([
-      fetch(`${baseUrl}/api/rooms?date=${dateStr}`, { 
+      fetch(roomsUrl, { 
         cache: 'no-store',
         headers: { 'Content-Type': 'application/json' }
       }),
-      fetch(`${baseUrl}/api/bookings/monthly?year=${year}&month=${month}`, { 
+      fetch(bookingsUrl, { 
         cache: 'no-store',
         headers: { 'Content-Type': 'application/json' }
       })
