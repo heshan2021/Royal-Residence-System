@@ -15,15 +15,15 @@ import { eq } from 'drizzle-orm';
 
 async function seed() {
   console.log('🌱 Starting database seed...\n');
-  console.log('📍 Using NEON_DATABASE_URL:', process.env.NEON_DATABASE_URL ? 'Found' : 'NOT FOUND');
+  console.log('📍 Using NEXT_PUBLIC_NEON_DATABASE_URL:', process.env.NEXT_PUBLIC_NEON_DATABASE_URL ? 'Found' : 'NOT FOUND');
 
-  if (!process.env.NEON_DATABASE_URL) {
-    throw new Error('NEON_DATABASE_URL not found in .env.local');
+  if (!process.env.NEXT_PUBLIC_NEON_DATABASE_URL) {
+    throw new Error('NEXT_PUBLIC_NEON_DATABASE_URL not found in .env.local');
   }
 
   // Create database connection
   const pool = new Pool({
-    connectionString: process.env.NEON_DATABASE_URL,
+    connectionString: process.env.NEXT_PUBLIC_NEON_DATABASE_URL,
     ssl: {
       rejectUnauthorized: false,
     },
@@ -36,6 +36,12 @@ async function seed() {
     // STEP 1: Clear existing data (in correct order due to foreign keys)
     // ========================================================================
     console.log('🗑️  Clearing existing data...');
+    // Delete in correct order due to foreign key constraints
+    // First delete transactions (references bookings)
+    // Then delete bookings (references guests and rooms)
+    // Then delete guests and rooms
+    const { transactions } = await import('./schema');
+    await db.delete(transactions);
     await db.delete(bookings);
     await db.delete(guests);
     await db.delete(rooms);

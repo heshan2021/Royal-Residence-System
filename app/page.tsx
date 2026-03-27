@@ -92,10 +92,13 @@ async function fetchInitialData(targetDate: Date): Promise<InitialData> {
 export default async function Home({
   searchParams,
 }: {
-  searchParams?: { [key: string]: string | string[] | undefined };
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
+  // Await the searchParams promise (Next.js 15+ compatibility)
+  const params = await searchParams;
+  
   // Parse date from URL search parameters (format: YYYY-MM-DD)
-  const dateParam = searchParams?.date;
+  const dateParam = params?.date;
   let targetDate: Date;
   
   if (dateParam && typeof dateParam === 'string') {
