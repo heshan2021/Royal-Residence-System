@@ -100,18 +100,28 @@ export default function CalendarView({ targetDate, initialBookings }: CalendarVi
     return date.toLocaleDateString('en-US', { weekday: 'short' });
   };
 
+  // Helper to extract purely the YYYY-MM-DD date string in the user's local timezone
+  // This avoids timezone shifts hiding single stays, and time offsets masking checkin dates
+  const getLocalYYYYMMDD = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const isDateBooked = (roomNumber: string, day: number): boolean => {
     const targetDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+    const targetStr = getLocalYYYYMMDD(targetDate);
     
     return bookings.some(booking => {
       if (booking.roomNumber !== roomNumber) return false;
       
-      const checkInDate = new Date(booking.checkInDate);
-      const checkOutDate = booking.checkOutDate ? new Date(booking.checkOutDate) : null;
+      const checkInStr = getLocalYYYYMMDD(new Date(booking.checkInDate));
+      const checkOutStr = booking.checkOutDate ? getLocalYYYYMMDD(new Date(booking.checkOutDate)) : null;
       
-      // Check if target date is within booking range
-      const isAfterOrOnCheckIn = targetDate >= checkInDate;
-      const isBeforeOrOnCheckOut = !checkOutDate || targetDate <= checkOutDate;
+      // Check if target date is within booking range ignoring hours/minutes
+      const isAfterOrOnCheckIn = targetStr >= checkInStr;
+      const isBeforeOrOnCheckOut = !checkOutStr || targetStr <= checkOutStr;
       
       return isAfterOrOnCheckIn && isBeforeOrOnCheckOut;
     });
@@ -119,15 +129,16 @@ export default function CalendarView({ targetDate, initialBookings }: CalendarVi
 
   const getBookingForDate = (roomNumber: string, day: number): Booking | undefined => {
     const targetDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+    const targetStr = getLocalYYYYMMDD(targetDate);
     
     return bookings.find(booking => {
       if (booking.roomNumber !== roomNumber) return false;
       
-      const checkInDate = new Date(booking.checkInDate);
-      const checkOutDate = booking.checkOutDate ? new Date(booking.checkOutDate) : null;
+      const checkInStr = getLocalYYYYMMDD(new Date(booking.checkInDate));
+      const checkOutStr = booking.checkOutDate ? getLocalYYYYMMDD(new Date(booking.checkOutDate)) : null;
       
-      const isAfterOrOnCheckIn = targetDate >= checkInDate;
-      const isBeforeOrOnCheckOut = !checkOutDate || targetDate <= checkOutDate;
+      const isAfterOrOnCheckIn = targetStr >= checkInStr;
+      const isBeforeOrOnCheckOut = !checkOutStr || targetStr <= checkOutStr;
       
       return isAfterOrOnCheckIn && isBeforeOrOnCheckOut;
     });
