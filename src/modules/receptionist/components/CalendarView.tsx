@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { getMonthlyBookings } from '../lib/repository';
 
@@ -65,17 +65,27 @@ export default function CalendarView({ targetDate, initialBookings }: CalendarVi
     }
   }, [currentMonth]);
 
-  // Only load bookings when month changes (not on initial render)
+  const hasAttemptedInitialFetch = useRef(false);
+
+  // Only load bookings when month changes (or on initial render if server data failed)
   useEffect(() => {
-    // Don't load if we're already on the initial month
+    // Check if we're on the initial month passed from server
     const isInitialMonth = 
       currentMonth.getFullYear() === targetDate.getFullYear() && 
       currentMonth.getMonth() === targetDate.getMonth();
     
+    // If we changed months, always load
     if (!isInitialMonth) {
       loadBookings();
+    } 
+    // If we are on the initial month but the server returned 0 bookings, 
+    // the Vercel server-to-server fetch might have failed.
+    // Try one client-side fetch as a fallback.
+    else if (initialBookings.length === 0 && !hasAttemptedInitialFetch.current) {
+      hasAttemptedInitialFetch.current = true;
+      loadBookings();
     }
-  }, [currentMonth, targetDate, loadBookings]);
+  }, [currentMonth, targetDate, loadBookings, initialBookings.length]);
 
   const navigateMonth = (direction: 'prev' | 'next') => {
     setCurrentMonth(prev => {
