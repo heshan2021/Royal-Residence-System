@@ -29,10 +29,10 @@ interface CheckInRequest {
  */
 function addHotelTime(dateStr: string, isCheckIn: boolean): Date {
   // Use local time in Sri Lanka (Asia/Colombo, UTC+5:30)
-  // Append time without timezone to avoid UTC conversion issues
+  // Append time with explicit +05:30 timezone to avoid runtime conversion issues
   const time = isCheckIn ? '14:00:00' : '11:00:00';
-  // Create date in local timezone
-  const date = new Date(`${dateStr}T${time}`);
+  // Create date explicitly in Sri Lanka timezone
+  const date = new Date(`${dateStr}T${time}+05:30`);
   return date;
 }
 
@@ -122,6 +122,8 @@ export default async function handler(
     // Find any active booking that overlaps with the requested dates
     // Two date ranges [A1, A2] and [B1, B2] overlap if: A1 < B2 AND A2 > B1
     // We check all cases to ensure proper overlap detection including future bookings
+    console.log("Checking overlap for:", { newCheckIn: standardizedCheckIn.toISOString(), newCheckOut: standardizedCheckOut.toISOString() });
+    
     const overlappingBooking = await db.query.bookings.findFirst({
       where: and(
         eq(bookings.roomId, room.id),
@@ -135,13 +137,13 @@ export default async function handler(
           ),
           // Case 2: Existing booking is long-term (no check-out date) - conflicts if new booking doesn't end before it starts
           and(
-            lte(bookings.checkInDate, standardizedCheckOut),
+            lt(bookings.checkInDate, standardizedCheckOut),
             isNull(bookings.checkOutDate)
           ),
           // Case 3: New booking would overlap with a future booking
           // (existing booking starts during or after new booking's period but before new checkout)
           and(
-            gte(bookings.checkInDate, standardizedCheckIn),
+            gt(bookings.checkInDate, standardizedCheckIn),
             lt(bookings.checkInDate, standardizedCheckOut)
           )
         )

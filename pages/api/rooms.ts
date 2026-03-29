@@ -2,7 +2,7 @@
 // API endpoint to get all rooms with booking and payment information
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { db, rooms, bookings, transactions, guests } from '../../src/db';
-import { eq, and, sum, lte, gte, isNull, or } from 'drizzle-orm';
+import { eq, and, sum, lte, gt, gte, isNull, or } from 'drizzle-orm';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -64,7 +64,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             eq(bookings.status, 'active'),
             lte(bookings.checkInDate, targetDateEnd), // check_in_date <= end of target day
             or(
-              gte(bookings.checkOutDate, targetDateStart), // check_out_date >= start of target day
+              gt(bookings.checkOutDate, targetDateEnd), // MUST be strictly greater than end of target day to be occupied
               isNull(bookings.checkOutDate) // OR check_out_date IS NULL
             )
           ),

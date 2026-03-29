@@ -22,6 +22,7 @@ export default function CalendarView({ targetDate, initialBookings }: CalendarVi
   const [bookings, setBookings] = useState<Booking[]>(initialBookings);
   const [isLoading, setIsLoading] = useState(false); // Start as false since we have initial data
   const [rooms, setRooms] = useState<string[]>([]);
+  const [tooltip, setTooltip] = useState<{ booking: Booking; x: number; y: number } | null>(null);
 
   // Get all room numbers (301, 302, 303, 201, 202, 203, 101)
   const allRooms = ['301', '302', '303', '201', '202', '203', '101'];
@@ -119,29 +120,11 @@ export default function CalendarView({ targetDate, initialBookings }: CalendarVi
     return `${year}-${month}-${day}`;
   };
 
-  const isDateBooked = (roomNumber: string, day: number): boolean => {
+  const getBookingsForDate = (roomNumber: string, day: number): Booking[] => {
     const targetDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
     const targetStr = getLocalYYYYMMDD(targetDate);
     
-    return bookings.some(booking => {
-      if (booking.roomNumber !== roomNumber) return false;
-      
-      const checkInStr = getLocalYYYYMMDD(new Date(booking.checkInDate));
-      const checkOutStr = booking.checkOutDate ? getLocalYYYYMMDD(new Date(booking.checkOutDate)) : null;
-      
-      // Check if target date is within booking range ignoring hours/minutes
-      const isAfterOrOnCheckIn = targetStr >= checkInStr;
-      const isBeforeOrOnCheckOut = !checkOutStr || targetStr <= checkOutStr;
-      
-      return isAfterOrOnCheckIn && isBeforeOrOnCheckOut;
-    });
-  };
-
-  const getBookingForDate = (roomNumber: string, day: number): Booking | undefined => {
-    const targetDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
-    const targetStr = getLocalYYYYMMDD(targetDate);
-    
-    return bookings.find(booking => {
+    return bookings.filter(booking => {
       if (booking.roomNumber !== roomNumber) return false;
       
       const checkInStr = getLocalYYYYMMDD(new Date(booking.checkInDate));
@@ -193,9 +176,9 @@ export default function CalendarView({ targetDate, initialBookings }: CalendarVi
       </div>
 
       {/* Calendar Grid */}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto pt-20 pb-4 -mt-20">
         <div 
-          className="grid gap-px bg-slate-200"
+          className="grid gap-px bg-slate-200 mt-20"
           style={{
             gridTemplateColumns: `auto repeat(${daysInMonth}, minmax(40px, 1fr))`,
           }}
@@ -226,69 +209,53 @@ export default function CalendarView({ targetDate, initialBookings }: CalendarVi
               
               {/* Date Cells */}
               {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
-                const isBooked = isDateBooked(roomNumber, day);
-                const booking = getBookingForDate(roomNumber, day);
+                const dayBookings = getBookingsForDate(roomNumber, day);
+                const targetDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+                const targetStr = getLocalYYYYMMDD(targetDate);
                 
                 return (
                   <div 
                     key={`${roomNumber}-${day}`}
-                    className={`border-t border-r border-slate-200 p-1 min-h-[60px] relative group ${
-                      isBooked 
-                        ? 'bg-emerald-50/80 border-emerald-200' 
-                        : 'bg-white hover:bg-slate-50'
-                    }`}
+                    className="border-t border-r border-slate-200 min-h-[60px] relative transition-colors bg-white hover:bg-slate-50"
                   >
-                    {isBooked && booking && (
-                      <>
-                        <div className="h-full flex flex-col justify-center p-2 rounded-lg bg-emerald-100/80 border border-emerald-200">
-                          <div className="text-xs font-medium text-emerald-800 truncate">
-                            {booking.guestName}
-                          </div>
-                          <div className="text-[10px] text-emerald-600 mt-1">
-                            {new Date(booking.checkInDate).toLocaleDateString('en-US', { 
-                              month: 'short', 
-                              day: 'numeric' 
-                            })}
-                            {booking.checkOutDate && (
-                              <>
-                                {' - '}
-                                {new Date(booking.checkOutDate).toLocaleDateString('en-US', { 
-                                  month: 'short', 
-                                  day: 'numeric' 
-                                })}
-                              </>
-                            )}
-                          </div>
+                    {dayBookings.map(booking => {
+                      const checkInStr = getLocalYYYYMMDD(new Date(booking.checkInDate));
+                      const checkOutStr = booking.checkOutDate ? getLocalYYYYMMDD(new Date(booking.checkOutDate)) : null;
+                      
+                      const isCheckIn = targetStr === checkInStr;
+                      const isCheckOut = targetStr === checkOutStr;
+
+                      let posClasses = "";
+                      if (isCheckIn && isCheckOut) {
+                        // Same day in-and-out
+                        posClasses = "left-1 right-1 rounded-md border-l border-r";
+                      } else if (isCheckIn) {
+                        // Starts in the afternoon -> right half
+                        posClasses = "left-1/2 right-0 rounded-l-md border-l";
+                      } else if (isCheckOut) {
+                        // Ends in the morning -> left half
+                        posClasses = "left-0 right-1/2 rounded-r-md border-r";
+                      } else {
+                        // Full day in between
+                        posClasses = "left-0 right-0 border-l-0 border-r-0";
+                      }
+
+                      return (
+                        <div 
+                          key={`${booking.phoneNumber}-${booking.checkInDate}`}
+                          className={`absolute top-1 bottom-1 z-10 flex flex-col justify-center px-1.5 overflow-hidden border-t border-b border-emerald-400 bg-emerald-100/95 hover:bg-emerald-200 cursor-pointer shadow-sm ${posClasses}`}
+                          onMouseEnter={(e) => setTooltip({ booking, x: e.clientX, y: e.clientY })}
+                          onMouseMove={(e) => setTooltip({ booking, x: e.clientX, y: e.clientY })}
+                          onMouseLeave={() => setTooltip(null)}
+                        >
+                          {(isCheckIn || day === 1) && (
+                            <div className="text-[10px] font-bold text-emerald-900 truncate tracking-tight">
+                              {booking.guestName}
+                            </div>
+                          )}
                         </div>
-                        {/* Tooltip on hover */}
-                        <div className="absolute z-10 invisible group-hover:visible bg-slate-900 text-white text-xs rounded-lg py-2 px-3 -top-16 left-1/2 transform -translate-x-1/2 whitespace-nowrap min-w-[200px]">
-                          <div className="font-medium">Booked by {booking.guestName}</div>
-                          <div className="text-slate-300 mt-1">
-                            📞 {booking.phoneNumber}
-                          </div>
-                          <div className="text-slate-300 mt-1">
-                            {new Date(booking.checkInDate).toLocaleDateString('en-US', { 
-                              weekday: 'short',
-                              month: 'short', 
-                              day: 'numeric',
-                              year: 'numeric'
-                            })}
-                            {booking.checkOutDate && (
-                              <>
-                                {' to '}
-                                {new Date(booking.checkOutDate).toLocaleDateString('en-US', { 
-                                  weekday: 'short',
-                                  month: 'short', 
-                                  day: 'numeric',
-                                  year: 'numeric'
-                                })}
-                              </>
-                            )}
-                          </div>
-                          <div className="absolute bottom-[-6px] left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-l-transparent border-r-transparent border-t-slate-900"></div>
-                        </div>
-                      </>
-                    )}
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -313,6 +280,40 @@ export default function CalendarView({ targetDate, initialBookings }: CalendarVi
           Hover over booked cells to see guest details. This view is read-only.
         </p>
       </div>
+
+      {/* Global Fixed Tooltip */}
+      {tooltip && (
+        <div 
+          className="fixed z-[9999] bg-slate-900 text-white text-xs rounded-xl py-3 px-4 shadow-2xl border border-slate-700 pointer-events-none transform -translate-x-1/2 w-64"
+          style={{ 
+            top: `${tooltip.y - 120}px`, 
+            left: `${tooltip.x}px` 
+          }}
+        >
+          <div className="font-semibold text-sm mb-1">Booked by {tooltip.booking.guestName}</div>
+          <div className="text-slate-300 mb-2">📞 {tooltip.booking.phoneNumber}</div>
+          <div className="text-slate-300 pt-2 border-t border-slate-700/50">
+            {new Date(tooltip.booking.checkInDate).toLocaleDateString('en-US', { 
+              weekday: 'short',
+              month: 'short', 
+              day: 'numeric',
+              year: 'numeric'
+            })}
+            {tooltip.booking.checkOutDate ? (
+              <>
+                {' → '}
+                {new Date(tooltip.booking.checkOutDate).toLocaleDateString('en-US', { 
+                  weekday: 'short',
+                  month: 'short', 
+                  day: 'numeric',
+                  year: 'numeric'
+                })}
+              </>
+            ) : ' → Ongoing'}
+          </div>
+          <div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-[8px] border-r-[8px] border-t-[8px] border-l-transparent border-r-transparent border-t-slate-900 filter drop-shadow"></div>
+        </div>
+      )}
     </div>
   );
 }
