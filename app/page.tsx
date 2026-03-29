@@ -130,7 +130,15 @@ export default function HomePage() {
       {/* Hero Section */}
       <header className="relative h-screen w-full flex items-center justify-center overflow-hidden">
         <div className="absolute inset-0">
-          <img alt="Royal Residence Suite" className="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCxW_C_MAM509c1hWu0ANV6iBdtRM-OSEz0f4DkmYbsCwoMmov-4u42reBnQBR_fbdSL-kw8-MfCpwbruMTkct-IPGuA8MHXI1ZJq-WhVzPbkaCzAsEqBWpnZlmCg3-O0wGVqzL-mo4UAb5DQflRNy06XWEsHshHVND4ZUcLkdM9lii3Wu_eyWnxRX1ktgVGQMg3KLCAP_COYFVZRuCINPS537jhNhqFerz3g-W8T9NsXDMQjrTsB9N7YeHAwe1tI4xY4KHy0_D5Jk"/>
+          <img 
+            alt="Royal Residence House View" 
+            className="w-full h-full object-cover" 
+            src="/houseview.webp"
+            onError={(e) => {
+              e.currentTarget.onerror = null;
+              e.currentTarget.src = "https://images.unsplash.com/photo-1542314831-c6a4d140b3c6?auto=format&fit=crop&w=1600&q=80";
+            }}
+          />
           <div className="absolute inset-0 hero-gradient"></div>
         </div>
         <div className="relative z-10 text-center max-w-4xl px-6">
