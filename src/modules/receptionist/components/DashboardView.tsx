@@ -77,7 +77,7 @@ export default function DashboardView({ targetDate, selectedDate, onDateChange, 
     if (room.id === 'room-301') return;
     
     setSelectedRoom(room);
-    if (room.isOccupied) {
+    if (room.isDueOut || room.isOccupied) {
       setModalType('checkout');
     } else {
       setModalType('checkin');
@@ -281,6 +281,8 @@ export default function DashboardView({ targetDate, selectedDate, onDateChange, 
           checkOutTime={selectedRoom.checkOutTime || ''}
           totalAmount={selectedRoom.totalAmount}
           paidAmount={selectedRoom.paidAmount}
+          isDueOut={selectedRoom.isDueOut}
+          onSwitchToCheckIn={() => setModalType('checkin')}
           onConfirm={handleCheckOut}
           onClose={() => { setModalType(null); setSelectedRoom(null); }}
         />

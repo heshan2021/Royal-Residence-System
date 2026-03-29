@@ -12,6 +12,7 @@ export interface Room {
   price: number | string;
   amenities: string[];
   isOccupied: boolean;
+  isDueOut?: boolean; // True if the room has a guest departing today
   checkOutTime?: string;
   guestName?: string;
   phoneNumber?: string;

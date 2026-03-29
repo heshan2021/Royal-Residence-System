@@ -38,7 +38,8 @@ export function RoomCard({ room, onClick }: RoomCardProps) {
       <div
         className={`
           glass-card p-5 h-full
-          ${room.isOccupied ? 'border-rose-100 bg-rose-50/30' : 'border-emerald-100 bg-white'}
+          ${room.isDueOut ? 'border-[1.5px] border-amber-300 bg-amber-50/60 shadow-[0_0_15px_rgba(251,191,36,0.15)]' : 
+            room.isOccupied ? 'border-rose-100 bg-rose-50/30' : 'border-emerald-100 bg-white'}
           ${!isLocked ? 'hover:shadow-lg hover:scale-[1.02]' : ''}
           transition-all duration-200
         `}
@@ -57,8 +58,11 @@ export function RoomCard({ room, onClick }: RoomCardProps) {
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <span className={room.isOccupied ? 'badge-occupied' : 'badge-available'}>
-              {room.isOccupied ? 'Occupied' : 'Available'}
+            <span className={
+              room.isDueOut ? 'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide uppercase bg-gradient-to-r from-amber-500 to-orange-400 text-white shadow-sm' :
+              room.isOccupied ? 'badge-occupied' : 'badge-available'
+            }>
+              {room.isDueOut ? 'Due Out' : room.isOccupied ? 'Occupied' : 'Available'}
             </span>
             
             {/* Payment Status Badge */}

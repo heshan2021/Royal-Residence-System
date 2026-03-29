@@ -12,6 +12,8 @@ interface CheckOutModalProps {
   checkOutTime: string;
   totalAmount?: number;
   paidAmount?: number;
+  isDueOut?: boolean;
+  onSwitchToCheckIn?: () => void;
   onConfirm: (finalPayment?: number, paymentMethod?: PaymentMethod) => void;
   onClose: () => void;
 }
@@ -24,6 +26,8 @@ export function CheckOutModal({
   checkOutTime,
   totalAmount = 0,
   paidAmount = 0,
+  isDueOut,
+  onSwitchToCheckIn,
   onConfirm,
   onClose,
 }: CheckOutModalProps) {
@@ -79,7 +83,9 @@ export function CheckOutModal({
           <X size={20} />
         </button>
 
-        <h2 className="text-2xl font-bold text-gray-900 mb-1">Check-Out</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-1">
+          {isDueOut ? 'Process Checkout (Due Out)' : 'Check-Out'}
+        </h2>
         <p className="text-gray-600 mb-6 text-sm">Room {room}</p>
 
         {/* Guest Details (Read-only) */}
@@ -246,6 +252,25 @@ export function CheckOutModal({
             )}
           </button>
         </div>
+
+        {/* Section B: Afternoon Availability (Only for Due Out) */}
+        {isDueOut && onSwitchToCheckIn && (
+          <div className="mt-8 pt-6 border-t border-gray-200">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-emerald-800 uppercase tracking-wide mb-1">Afternoon Availability</h3>
+                <p className="text-sm text-emerald-600">Room is available for a new check-in today.</p>
+              </div>
+              <button
+                type="button"
+                onClick={onSwitchToCheckIn}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap shadow-sm"
+              >
+                New Booking
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

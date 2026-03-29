@@ -54,21 +54,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         let nicNumber: string | undefined;
         let checkOutTimeDisplay: string | undefined;
 
-        // Check if room is occupied on target date using date range logic:
-        // A room is "Occupied" on targetDate IF there is a booking where:
-        // status = 'active' AND check_in_date <= end_of_target_day AND (check_out_date >= start_of_target_day OR check_out_date IS NULL)
-        // This ensures bookings that start anytime during the day or span over the day are included
-        const activeBookingOnDate = await db.query.bookings.findFirst({
+        // A room is "Occupied" on targetDate IF there is a booking where check_out_date > end of target day
+        // A room is "Due Out" on targetDate IF there is a booking where check_out_date is within the target date
+        const activeBookingsOnDate = await db.query.bookings.findMany({
           where: and(
             eq(bookings.roomId, room.id),
             eq(bookings.status, 'active'),
             lte(bookings.checkInDate, targetDateEnd), // check_in_date <= end of target day
             or(
-              gt(bookings.checkOutDate, targetDateEnd), // MUST be strictly greater than end of target day to be occupied
+              gte(bookings.checkOutDate, targetDateStart), // MUST be greater than or equal to start of target day
               isNull(bookings.checkOutDate) // OR check_out_date IS NULL
             )
           ),
+          orderBy: (bookings, { asc }) => [asc(bookings.checkInDate)],
         });
+
+        let isDueOutOnTargetDate = false;
+        
+        // Find if we have a departing guest and/or a staying guest
+        const departingBooking = activeBookingsOnDate.find(b => b.checkOutDate && b.checkOutDate <= targetDateEnd);
+        const stayingBooking = activeBookingsOnDate.find(b => !b.checkOutDate || b.checkOutDate > targetDateEnd);
+
+        if (stayingBooking) {
+          isOccupiedOnTargetDate = true;
+        }
+
+        if (departingBooking) {
+          isDueOutOnTargetDate = true;
+        }
+
+        // Prioritize departing booking so the receptionist can process their checkout folio
+        const activeBookingOnDate = departingBooking || stayingBooking;
 
         if (activeBookingOnDate) {
           isOccupiedOnTargetDate = true;
@@ -107,6 +123,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           price: room.price ? parseFloat(room.price) : null,
           amenities: room.amenities || [],
           isOccupied: isOccupiedOnTargetDate,
+          isDueOut: isDueOutOnTargetDate,
           guestName,
           phoneNumber,
           nicNumber,
