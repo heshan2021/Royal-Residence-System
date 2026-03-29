@@ -2,6 +2,7 @@
 
 import { useState, useSyncExternalStore } from 'react';
 import { Lock, ArrowRight } from 'lucide-react';
+import { usePathname } from 'next/navigation';
 
 // Helper to read session storage safely (returns null during SSR)
 function getSessionAuth(): boolean | null {
@@ -17,6 +18,7 @@ function subscribe(): () => void {
 }
 
 export default function PasswordGate({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const initialAuth = useSyncExternalStore(
     subscribe,
     getSessionAuth,
@@ -29,6 +31,11 @@ export default function PasswordGate({ children }: { children: React.ReactNode }
 
   // Use authState if set (after login), otherwise use initialAuth from session storage
   const isAuthenticated = authState !== null ? authState : initialAuth;
+
+  // Check if current route is public (should not require authentication)
+  // Home page (/) is public (booking engine)
+  // /book routes are also public (legacy booking URLs)
+  const isPublicRoute = pathname === '/' || pathname?.startsWith('/book');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,7 +53,7 @@ export default function PasswordGate({ children }: { children: React.ReactNode }
   };
 
   // Show loading while checking auth status (prevents hydration mismatch)
-  if (isAuthenticated === null) {
+  if (isAuthenticated === null && !isPublicRoute) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-50">
         <div className="w-8 h-8 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
@@ -54,6 +61,12 @@ export default function PasswordGate({ children }: { children: React.ReactNode }
     );
   }
 
+  // If it's a public route, always show children without authentication
+  if (isPublicRoute) {
+    return <>{children}</>;
+  }
+
+  // For non-public routes, check authentication
   if (!isAuthenticated) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">

@@ -15,6 +15,13 @@
       "when": 1774127674006,
       "tag": "0001_add_expenses_table",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1774781610465,
+      "tag": "0002_greedy_midnight",
+      "breakpoints": true
     }
   ]
 }

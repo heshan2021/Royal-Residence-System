@@ -28,6 +28,10 @@ import { relations } from 'drizzle-orm';
 export const rooms = pgTable('rooms', {
   id: serial('id').primaryKey(),
   number: varchar('number', { length: 10 }).notNull().unique(),
+  name: varchar('name', { length: 255 }),
+  description: text('description'),
+  size: varchar('size', { length: 50 }),
+  image_url: text('image_url'),
   price: numeric('price', { precision: 10, scale: 2 }),
   amenities: jsonb('amenities').$type<string[]>().default([]),
   isOccupied: boolean('is_occupied').default(false),

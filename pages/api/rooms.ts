@@ -38,10 +38,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       targetDateEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
     }
 
-    // Get all rooms
-    const allRooms = await db.query.rooms.findMany({
-      orderBy: (rooms, { asc }) => [asc(rooms.number)],
-    });
+    // Get all rooms - use select instead of findMany to avoid automatic column selection
+    const allRooms = await db.select({
+      id: rooms.id,
+      number: rooms.number,
+      price: rooms.price,
+      amenities: rooms.amenities,
+      isOccupied: rooms.isOccupied,
+      checkOutTime: rooms.checkOutTime,
+      guestName: rooms.guestName,
+      phoneNumber: rooms.phoneNumber,
+      nicNumber: rooms.nicNumber,
+      createdAt: rooms.createdAt,
+      updatedAt: rooms.updatedAt,
+    }).from(rooms).orderBy(rooms.number);
 
     // For each room, check if it's occupied on the target date
     const roomsWithPayments = await Promise.all(
