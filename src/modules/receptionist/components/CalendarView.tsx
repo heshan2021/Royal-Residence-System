@@ -15,9 +15,10 @@ interface Booking {
 interface CalendarViewProps {
   targetDate: Date;
   initialBookings: Booking[];
+  isActive?: boolean;
 }
 
-export default function CalendarView({ targetDate, initialBookings }: CalendarViewProps) {
+export default function CalendarView({ targetDate, initialBookings, isActive }: CalendarViewProps) {
   const [currentMonth, setCurrentMonth] = useState<Date>(targetDate);
   const [bookings, setBookings] = useState<Booking[]>(initialBookings);
   const [isLoading, setIsLoading] = useState(false); // Start as false since we have initial data
@@ -66,27 +67,24 @@ export default function CalendarView({ targetDate, initialBookings }: CalendarVi
     }
   }, [currentMonth]);
 
-  const hasAttemptedInitialFetch = useRef(false);
+  const isFirstRender = useRef(true);
 
-  // Only load bookings when month changes (or on initial render if server data failed)
+  // Load bookings when month changes or when the calendar view becomes active
   useEffect(() => {
-    // Check if we're on the initial month passed from server
-    const isInitialMonth = 
-      currentMonth.getFullYear() === targetDate.getFullYear() && 
-      currentMonth.getMonth() === targetDate.getMonth();
-    
-    // If we changed months, always load
-    if (!isInitialMonth) {
-      loadBookings();
-    } 
-    // If we are on the initial month but the server returned 0 bookings, 
-    // the Vercel server-to-server fetch might have failed.
-    // Try one client-side fetch as a fallback.
-    else if (initialBookings.length === 0 && !hasAttemptedInitialFetch.current) {
-      hasAttemptedInitialFetch.current = true;
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      // If the server returned 0 bookings, the Vercel server-to-server fetch might have failed.
+      // Try one client-side fetch as a fallback.
+      if (initialBookings.length === 0) {
+        loadBookings();
+      }
+      return;
+    }
+
+    if (isActive !== false) {
       loadBookings();
     }
-  }, [currentMonth, targetDate, loadBookings, initialBookings.length]);
+  }, [currentMonth, isActive, loadBookings, initialBookings.length]);
 
   const navigateMonth = (direction: 'prev' | 'next') => {
     setCurrentMonth(prev => {

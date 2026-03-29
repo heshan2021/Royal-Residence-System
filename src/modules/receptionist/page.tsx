@@ -97,6 +97,7 @@ export default function ReceptionistDashboard({ targetDate, initialData }: Recep
           <CalendarView 
             targetDate={targetDate}
             initialBookings={initialData.monthlyBookings}
+            isActive={view === 'calendar'}
           />
         </div>
 
