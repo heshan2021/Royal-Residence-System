@@ -84,100 +84,100 @@ export default function WhatsAppModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="relative w-full max-w-md bg-[#25190c] border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
+      <div className="relative w-full max-w-md bg-surface border border-outline-variant/20 rounded-2xl shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-white/10">
+        <div className="flex items-center justify-between p-6 border-b border-outline-variant/20">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-green-500/20 rounded-lg">
-              <MessageCircle className="w-6 h-6 text-green-400" />
+              <MessageCircle className="w-6 h-6 text-green-600" />
             </div>
             <div>
-              <h3 className="text-xl font-serif text-[#FDFBF7]">WhatsApp Concierge</h3>
-              <p className="text-sm text-white/60">Contact our front desk directly</p>
+              <h3 className="text-xl font-headline text-on-surface">WhatsApp Concierge</h3>
+              <p className="text-sm text-on-surface-variant font-label">Contact our front desk directly</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+            className="p-2 hover:bg-surface-variant rounded-lg transition-colors"
           >
-            <X className="w-5 h-5 text-white/60" />
+            <X className="w-5 h-5 text-on-surface-variant" />
           </button>
         </div>
 
         {/* Booking Summary */}
-        <div className="p-6 border-b border-white/10">
-          <h4 className="text-sm uppercase tracking-widest text-white/50 mb-4">Booking Summary</h4>
+        <div className="p-6 border-b border-outline-variant/20">
+          <h4 className="text-sm uppercase tracking-widest text-on-surface-variant mb-4">Booking Summary</h4>
           <div className="space-y-3">
             <div className="flex justify-between">
-              <span className="text-white/70">Room</span>
-              <span className="text-[#FDFBF7] font-medium">{roomName}</span>
+              <span className="text-on-surface-variant">Room</span>
+              <span className="text-on-surface font-medium">{roomName}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-white/70">Check-In</span>
-              <span className="text-[#FDFBF7]">{formatDate(checkIn)}</span>
+              <span className="text-on-surface-variant">Check-In</span>
+              <span className="text-on-surface">{formatDate(checkIn)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-white/70">Check-Out</span>
-              <span className="text-[#FDFBF7]">{formatDate(checkOut)}</span>
+              <span className="text-on-surface-variant">Check-Out</span>
+              <span className="text-on-surface">{formatDate(checkOut)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-white/70">Guests</span>
-              <span className="text-[#FDFBF7]">{guests}</span>
+              <span className="text-on-surface-variant">Guests</span>
+              <span className="text-on-surface">{guests}</span>
             </div>
-            <div className="flex justify-between pt-3 border-t border-white/10">
-              <span className="text-white/70">Total Expected</span>
-              <span className="text-xl font-medium text-[#D4AF37]">{formatPrice(totalPrice)}</span>
+            <div className="flex justify-between pt-3 border-t border-outline-variant/20">
+              <span className="text-on-surface-variant">Total Expected</span>
+              <span className="text-xl font-medium text-secondary">{formatPrice(totalPrice)}</span>
             </div>
           </div>
         </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6">
-          <h4 className="text-sm uppercase tracking-widest text-white/50 mb-4">Your Details</h4>
+          <h4 className="text-sm uppercase tracking-widest text-on-surface-variant mb-4">Your Details</h4>
           
           <div className="space-y-4">
             <div>
-              <label className="block text-sm text-white/70 mb-2">Full Name *</label>
+              <label className="block text-sm text-on-surface-variant mb-2">Full Name *</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full bg-[#060913]/50 border border-white/10 rounded-lg px-4 py-3 text-[#FDFBF7] focus:outline-none focus:border-[#D4AF37] transition-colors"
+                className="w-full bg-surface-container border border-outline-variant rounded-lg px-4 py-3 text-on-surface focus:outline-none focus:border-secondary transition-colors"
                 placeholder="Enter your full name"
                 required
               />
             </div>
             
             <div>
-              <label className="block text-sm text-white/70 mb-2">Phone Number *</label>
+              <label className="block text-sm text-on-surface-variant mb-2">Phone Number *</label>
               <div className="relative">
                 <div className="absolute left-3 top-1/2 transform -translate-y-1/2">
-                  <Phone className="w-4 h-4 text-white/40" />
+                  <Phone className="w-4 h-4 text-on-surface-variant" />
                 </div>
                 <input
                   type="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  className="w-full bg-[#060913]/50 border border-white/10 rounded-lg pl-10 pr-4 py-3 text-[#FDFBF7] focus:outline-none focus:border-[#D4AF37] transition-colors"
+                  className="w-full bg-surface-container border border-outline-variant rounded-lg pl-10 pr-4 py-3 text-on-surface focus:outline-none focus:border-secondary transition-colors"
                   placeholder="Enter your phone number"
                   required
                 />
               </div>
-              <p className="mt-2 text-xs text-white/40">
+              <p className="mt-2 text-xs text-on-surface-variant">
                 We'll send you a WhatsApp message to confirm your booking
               </p>
             </div>
           </div>
 
           {/* Contact Info */}
-          <div className="mt-6 p-4 bg-[#060913]/30 rounded-lg border border-white/5">
+          <div className="mt-6 p-4 bg-surface-container rounded-lg border border-outline-variant/20">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-green-500/20 rounded">
-                <MessageCircle className="w-4 h-4 text-green-400" />
+                <MessageCircle className="w-4 h-4 text-green-600" />
               </div>
               <div>
-                <p className="text-sm text-white/70">Contact Number</p>
-                <p className="text-[#FDFBF7] font-medium">0775 745 745</p>
+                <p className="text-sm text-on-surface-variant">Contact Number</p>
+                <p className="text-on-surface font-medium">0775 745 745</p>
               </div>
             </div>
           </div>
@@ -187,7 +187,7 @@ export default function WhatsAppModal({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white font-semibold tracking-widest uppercase py-4 px-6 rounded-lg transition-all duration-300 flex justify-center items-center gap-3"
+              className="w-full bg-green-600 hover:bg-green-700 disabled:bg-surface-variant text-white font-semibold tracking-widest uppercase py-4 px-6 rounded-lg transition-all duration-300 flex justify-center items-center gap-3 shadow-md hover:shadow-lg"
             >
               {isSubmitting ? (
                 <>
@@ -201,7 +201,7 @@ export default function WhatsAppModal({
                 </>
               )}
             </button>
-            <p className="mt-3 text-center text-xs text-white/40">
+            <p className="mt-3 text-center text-xs text-on-surface-variant">
               You'll be redirected to WhatsApp to complete your booking request
             </p>
           </div>
