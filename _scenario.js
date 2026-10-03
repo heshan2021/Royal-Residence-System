@@ -268,6 +268,59 @@ async function roomOn(number, date) {
   check('G8', 'monthly-report labels refunds (Guest D over-paid then left early)',
     /refund/i.test(rep.text) && /Refund/.test(rep.text), `mentionsRefund=${/refund/i.test(rep.text)}`);
 
+  // --- G9-G14: All Time / Monthly / Annual period scope on the stats API ---
+  // Expected values are recomputed with Sri Lankan (UTC+05:30) half-open bounds,
+  // the same convention the API must use on a UTC host.
+  const slt = (from, to) => `>= '${from}T00:00:00+05:30' AND created_at < '${to}T00:00:00+05:30'`;
+  const rawOctTx = await sql(`SELECT COALESCE(SUM(amount),0)::int AS s FROM transactions WHERE created_at ${slt('2026-10-01', '2026-11-01')}`);
+  const rawOctExp = await sql(`SELECT COALESCE(SUM(amount),0)::int AS s FROM expenses WHERE expense_date ${slt('2026-10-01', '2026-11-01')}`);
+  const rawYearTx = await sql(`SELECT COALESCE(SUM(amount),0)::int AS s FROM transactions WHERE created_at ${slt('2026-01-01', '2027-01-01')}`);
+
+  const monthStats = await api('GET', '/api/admin/accounting-stats?period=month&month=10&year=2026');
+  check('G9', 'period=month scopes revenue to that Sri Lankan month',
+    !!monthStats.json && monthStats.json.period === 'month'
+      && monthStats.json.periodLabel === 'October 2026'
+      && monthStats.json.totalRevenue === rawOctTx[0].s
+      && monthStats.json.rangeStart !== null && monthStats.json.rangeEnd !== null,
+    `revenue=${monthStats.json && monthStats.json.totalRevenue} raw=${rawOctTx[0].s} label=${monthStats.json && monthStats.json.periodLabel}`);
+  check('G10', 'period=month scopes expenses and reports period collection',
+    !!monthStats.json
+      && monthStats.json.totalExpenses === rawOctExp[0].s
+      && monthStats.json.collection === monthStats.json.totalRevenue
+      && monthStats.json.collectionLabel === "This Month's Collection",
+    `expenses=${monthStats.json && monthStats.json.totalExpenses} raw=${rawOctExp[0].s} collection=${monthStats.json && monthStats.json.collection}`);
+
+  const yearStats = await api('GET', '/api/admin/accounting-stats?period=year&year=2026');
+  check('G11', 'period=year scopes revenue to that Sri Lankan year',
+    !!yearStats.json && yearStats.json.period === 'year'
+      && yearStats.json.periodLabel === '2026'
+      && yearStats.json.totalRevenue === rawYearTx[0].s
+      && yearStats.json.collection === yearStats.json.totalRevenue
+      && yearStats.json.collectionLabel === "This Year's Collection",
+    `revenue=${yearStats.json && yearStats.json.totalRevenue} raw=${rawYearTx[0].s}`);
+
+  const allStats = await api('GET', '/api/admin/accounting-stats?period=all');
+  check('G12', 'period=all matches the default no-param all-time snapshot',
+    !!allStats.json && allStats.json.period === 'all'
+      && allStats.json.periodLabel === 'All time'
+      && allStats.json.rangeStart === null && allStats.json.rangeEnd === null
+      && allStats.json.totalRevenue === statsBefore.json.totalRevenue
+      && allStats.json.pendingBalance === statsBefore.json.pendingBalance
+      && allStats.json.collection === allStats.json.todayCollection
+      && allStats.json.collectionLabel === "Today's Collection",
+    `all=${allStats.json && allStats.json.totalRevenue} default=${statsBefore.json && statsBefore.json.totalRevenue} pending=${allStats.json && allStats.json.pendingBalance}`);
+  check('G13', 'period=month revenue <= period=year revenue <= all-time revenue',
+    !!monthStats.json && !!yearStats.json
+      && monthStats.json.totalRevenue <= yearStats.json.totalRevenue
+      && yearStats.json.totalRevenue <= statsBefore.json.totalRevenue,
+    `oct=${monthStats.json && monthStats.json.totalRevenue} year=${yearStats.json && yearStats.json.totalRevenue} all=${statsBefore.json && statsBefore.json.totalRevenue}`);
+
+  const badPeriod = await api('GET', '/api/admin/accounting-stats?period=week');
+  const badMonth = await api('GET', '/api/admin/accounting-stats?period=month&month=13&year=2026');
+  check('G14', 'invalid period / out-of-range month -> 400',
+    badPeriod.status === 400 && badMonth.status === 400,
+    `periodStatus=${badPeriod.status} monthStatus=${badMonth.status}`);
+
   const f = results.filter((r) => !r.ok);
   console.log(`\n=== SUMMARY: ${results.length - f.length}/${results.length} passed, ${f.length} failed ===`);
   f.forEach((r) => console.log(`  FAIL ${r.id}: ${r.desc}  [${r.detail}]`));
