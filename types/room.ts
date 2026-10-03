@@ -41,6 +41,18 @@ export interface Room {
 // Payment method type for reuse
 export type PaymentMethod = 'Cash' | 'Bank';
 
+// A concession granted while settling a folio at check-out (student rate, no
+// cheaper room free, repeating customer, goodwill ...). The amount may never
+// exceed the balance still owed - the API rejects it - and it always needs a
+// reason, so no money is ever given away anonymously.
+export interface CheckOutSubmission {
+  finalPayment?: number;
+  paymentMethod?: PaymentMethod;
+  earlyDeparture?: boolean;
+  discountAmount?: number;
+  discountReason?: string;
+}
+
 // Transaction history item for ledger display
 export interface TransactionHistoryItem {
   transactionId: number;

@@ -16,6 +16,12 @@
 //  D13 - a scheduled check-out is refused while the folio still owes money; an
 //        EARLY departure may close with a residual debt (the room must be
 //        released for re-sale) which is reported as `outstandingBalance`.
+//  D14 - a concession (discount) may be granted while settling the folio - for a
+//        student, a night where no cheaper room was free, a repeating customer,
+//        goodwill... It always needs a reason, it may only forgive debt (never
+//        refund cash), and it is stored as the folio's NET total plus an audit
+//        trail (`discount_amount` / `discount_reason` / `discount_applied_at`),
+//        so the ledger still adds up to what the guest actually paid.
 //  E-6 - room flags are re-derived from bookings instead of blanket-nulled.
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -30,6 +36,7 @@ import {
   sltDayBounds,
   sltToday,
 } from '../../../lib/hotelDates';
+import { validateDiscount } from '../../../lib/discounts';
 import { reconcileRoom } from '../../../lib/roomState';
 
 interface CheckOutRequest {
@@ -39,6 +46,8 @@ interface CheckOutRequest {
   finalPayment?: number;
   paymentMethod?: 'Cash' | 'Bank';
   earlyDeparture?: boolean; // guest leaves before their booked check-out date
+  discountAmount?: number; // concession granted while settling (LKR)
+  discountReason?: string; // why - required whenever a discount is applied
 }
 
 const PAYMENT_METHODS = ['Cash', 'Bank'];
@@ -206,8 +215,36 @@ export default async function handler(
       earlyDepartureApplied = true;
     }
 
+    // 4b. Discount (D14): a concession on what is still owed - a student rate, a
+    //     night where no cheaper room was free, a repeating customer, goodwill...
+    //     It is validated against the balance remaining AFTER the final payment,
+    //     so a discount can never exceed the debt and can never turn into a cash
+    //     refund: forgiving a debt is not the same as handing money back.
+    const owedBeforeDiscount = total - paidBefore - finalPayment;
+    const discountResult = validateDiscount(
+      body.discountAmount,
+      body.discountReason,
+      owedBeforeDiscount
+    );
+    if (!discountResult.ok) {
+      return res.status(400).json({
+        error: discountResult.error,
+        details: discountResult.details,
+        maxDiscount: Math.max(0, owedBeforeDiscount),
+        totalAmount: total,
+        paidAmount: paidBefore,
+      });
+    }
+    const discount = discountResult.discount;
+
     const collected = paidBefore + finalPayment;
-    const outstanding = total - collected;
+    // The folio's NET value: what the guest is expected to pay once the
+    // concession is taken off. `bookings.total_price` stores this, so
+    // SUM(transactions.amount) still equals what the guest actually paid.
+    const netTotal = total - discount.amount;
+    // Discounting only ever forgives debt, so this stays non-negative; an
+    // over-payment (early departure) still surfaces as a refund row below.
+    const outstanding = netTotal - collected;
     const refundDue = outstanding < 0 ? -outstanding : 0;
 
     // 5. A scheduled check-out may not close a folio that still owes money (D13) -
@@ -221,10 +258,11 @@ export default async function handler(
     if (uncollected > 0 && !earlyDepartureApplied) {
       return res.status(400).json({
         error: 'Outstanding balance must be settled before check-out',
-        details: `LKR ${uncollected.toLocaleString()} is still due on this booking`,
+        details: `LKR ${uncollected.toLocaleString()} is still due on this booking - collect it, or grant a discount with a reason to write part of it off`,
         balance: uncollected,
-        totalAmount: total,
-        paidAmount: paidBefore,
+        maxDiscount: uncollected,
+        totalAmount: netTotal,
+        paidAmount: collected,
       });
     }
 
@@ -261,7 +299,13 @@ export default async function handler(
       .set({
         status: 'completed',
         checkOutDate: departureInstant,
-        totalPrice: total,
+        // The discounted figure, with the concession kept beside it: the folio's
+        // original price is `totalPrice + discountAmount`, and the reason and
+        // timestamp keep every rupee that was given away attributable.
+        totalPrice: netTotal,
+        discountAmount: discount.amount,
+        discountReason: discount.amount > 0 ? discount.reason : null,
+        discountAppliedAt: discount.amount > 0 ? new Date() : null,
       })
       .where(eq(bookings.id, booking.id))
       .returning();
@@ -270,6 +314,12 @@ export default async function handler(
     await reconcileRoom(room.id);
     const updatedRoom = await db.query.rooms.findFirst({ where: eq(rooms.id, room.id) });
 
+    // Spell the concession out in the confirmation the desk reads out / receipts.
+    const discountNote =
+      discount.amount > 0
+        ? ` (LKR ${discount.amount.toLocaleString()} discount: ${discount.reason})`
+        : '';
+
     return res.status(200).json({
       success: true,
       room: updatedRoom ?? room,
@@ -277,19 +327,24 @@ export default async function handler(
       nights,
       bookedNights,
       earlyDeparture: earlyDepartureApplied,
-      totalAmount: total,
+      // `grossTotal` is the folio before the concession; `totalAmount` is what the
+      // guest was actually charged (and therefore what the ledger sums to).
+      grossTotal: total,
+      totalAmount: netTotal,
       paidAmount: collected,
+      discountAmount: discount.amount,
+      discountReason: discount.amount > 0 ? discount.reason : null,
       refundDue,
       outstandingBalance: uncollected,
       settled: uncollected === 0,
       wasOverdue: folioWasOverdue,
       message: earlyDepartureApplied
-        ? `Room ${roomNumber} early departure: ${nights} night(s) charged, LKR ${total.toLocaleString()}${
+        ? `Room ${roomNumber} early departure: ${nights} night(s) charged, LKR ${netTotal.toLocaleString()}${discountNote}${
             uncollected > 0 ? ` (LKR ${uncollected.toLocaleString()} still owed)` : ''
           }`
         : folioWasOverdue
-          ? `Room ${roomNumber} checked out successfully (unclosed folio from ${formatHotelDate(booking.checkOutDate as Date)} settled)`
-          : `Room ${roomNumber} checked out successfully`,
+          ? `Room ${roomNumber} checked out successfully (unclosed folio from ${formatHotelDate(booking.checkOutDate as Date)} settled)${discountNote}`
+          : `Room ${roomNumber} checked out successfully${discountNote}`,
     });
 
   } catch (error) {

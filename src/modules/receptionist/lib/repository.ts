@@ -3,7 +3,7 @@
 // This file contains all database interactions via API routes
 // UI components should only call these functions
 
-import { Room as UIRoom, PaymentMethod, Guest as UIGuest, TransactionHistoryItem } from '../../../../types/room';
+import { Room as UIRoom, PaymentMethod, Guest as UIGuest, TransactionHistoryItem, CheckOutSubmission } from '../../../../types/room';
 import { CheckInData } from '../components/CheckInModal';
 // Pure date helpers (safe in both browser and server bundles): the hotel day is
 // always the Sri Lanka calendar day, never the UTC day of the JS Date.
@@ -167,19 +167,18 @@ export async function checkInGuest(roomId: string, checkInData: CheckInData): Pr
  * @param options.paymentMethod - Optional payment method for final payment
  * @param options.earlyDeparture - True when the guest leaves before the booked check-out date;
  *                                 the folio is re-priced and the difference is refunded.
+ * @param options.discountAmount - Optional concession granted while settling (LKR). It may
+ *                                 never exceed the outstanding balance, and it reduces what
+ *                                 the guest owes - it is never refunded as cash.
+ * @param options.discountReason - Why the discount was given. Required by the API whenever
+ *                                 `discountAmount` is set.
  * @returns Promise<UIRoom> - Updated room object
  */
 export async function checkOutGuest(
   roomId: string, 
-  options: {
-    finalPayment?: number;
-    paymentMethod?: PaymentMethod;
-    date?: Date;
-    bookingId?: number;
-    earlyDeparture?: boolean;
-  } = {}
+  options: CheckOutSubmission & { date?: Date; bookingId?: number } = {}
 ): Promise<UIRoom> {
-  const { finalPayment, paymentMethod, date, bookingId, earlyDeparture } = options;
+  const { finalPayment, paymentMethod, date, bookingId, earlyDeparture, discountAmount, discountReason } = options;
   // Extract room number from ID
   const roomNumber = roomId.replace('room-', '');
   
@@ -209,12 +208,23 @@ export async function checkOutGuest(
         // The hotel day the receptionist is looking at, in Sri Lanka time.
         date: date ? sltToday(date) : undefined,
         earlyDeparture: earlyDeparture === true,
+        // A concession agreed at the desk. The API refuses an amount without a
+        // reason, and refuses one larger than the balance still owed.
+        discountAmount: discountAmount && discountAmount > 0 ? discountAmount : undefined,
+        discountReason:
+          discountReason && discountReason.trim() !== '' ? discountReason.trim() : undefined,
       }),
     });
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `Check-out failed: ${response.status}`);
+      // Keep the server's explanation (e.g. "A reason is required when a discount
+      // is applied"): the modal shows it verbatim to the receptionist.
+      const detail =
+        typeof errorData.details === 'string' && errorData.details ? ` — ${errorData.details}` : '';
+      throw new Error(
+        errorData.error ? `${errorData.error}${detail}` : `Check-out failed: ${response.status}`
+      );
     }
 
     // The server re-derives the room from the bookings table, so trust its copy

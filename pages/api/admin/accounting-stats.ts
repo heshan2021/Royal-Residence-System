@@ -155,6 +155,10 @@ export default async function handler(
 
     // ========================================================================
     // 1. Total Revenue: SUM of transaction amounts in the selected period
+    //    Cash-in only, so this is deliberately already NET of any discount
+    //    granted at check-out (a concession lowers what the guest owed, it never
+    //    moves money). Discounts given are therefore not deducted here a second
+    //    time; they are itemised in the monthly report's DISCOUNT LEDGER.
     // ========================================================================
     const totalRevenueResult = await db
       .select({

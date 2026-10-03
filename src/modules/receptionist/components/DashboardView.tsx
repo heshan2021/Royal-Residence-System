@@ -8,7 +8,7 @@ import { RoomCard } from './RoomCard';
 import { CheckInModal, CheckInData } from './CheckInModal';
 import { CheckOutModal } from './CheckOutModal';
 import AddExpenseModal from '../../../../app/admin/accounting/AddExpenseModal';
-import { Room } from '../../../../types/room';
+import { Room, CheckOutSubmission } from '../../../../types/room';
 import { sltToday } from '../../../../lib/hotelDates';
 import { 
   getAllRooms, 
@@ -110,22 +110,16 @@ export default function DashboardView({ targetDate, selectedDate, onDateChange, 
     }
   }, [selectedRoom, loadRooms]);
 
-  const handleCheckOut = useCallback(async (
-    finalPayment?: number,
-    paymentMethod?: 'Cash' | 'Bank',
-    earlyDeparture?: boolean
-  ) => {
+  const handleCheckOut = useCallback(async (submission: CheckOutSubmission) => {
     if (!selectedRoom) return;
     try {
       await checkOutGuest(selectedRoom.id, {
-        finalPayment,
-        paymentMethod,
+        ...submission,
         // Close the folio this card is showing. An overdue folio (a stay that
         // already ended) must not be confused with whatever covers today.
         bookingId: selectedRoom.bookingId,
         // Resolve the booking that covers the day the receptionist is viewing.
         date: selectedDate ? new Date(selectedDate) : undefined,
-        earlyDeparture,
       });
       // Re-read the whole grid from the server. Patching the local map was unsafe:
       // the check-out may release one folio while another is still open on the room.

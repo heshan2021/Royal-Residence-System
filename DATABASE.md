@@ -36,15 +36,40 @@ NEON_DATABASE_URL=your_neon_connection_string
 - `guestId` (foreign key → guests)
 - `roomId` (foreign key → rooms)
 - `checkInDate`, `checkOutDate` (timestamp)
-- `totalPrice` (integer)
+- `totalPrice` (integer) - **net** amount the guest is charged (see Discounts below)
 - `status` (varchar) - 'active' | 'completed' | 'cancelled'
+- `discountAmount` (integer, default 0) - concession granted at check-out, in LKR
+- `discountReason` (varchar 255) - why it was granted (required whenever the amount > 0)
+- `discountAppliedAt` (timestamp) - when the concession was recorded (null = none)
 
 **`transactions`** - Payment records
 - `id` (serial, primary key)
 - `bookingId` (foreign key → bookings)
 - `amount` (integer) - Amount in LKR
 - `paymentMethod` (varchar) - 'Cash' | 'Bank'
-- `paymentType` (varchar) - 'advance' | 'final_settlement'
+- `paymentType` (varchar) - 'advance' | 'final_settlement' | 'refund'
+
+---
+
+## 💸 Discounts (concessions at check-out)
+
+A receptionist may knock money off a stay while settling the folio - a student
+rate, a night where no cheaper room was free, a repeating customer, goodwill.
+Rules enforced by `lib/discounts.ts` (shared by the API route and the modal):
+
+- A discount **requires a reason**; the amount can never exceed what the folio
+  still owes *after* the final payment.
+- A discount only **forgives debt** - it never refunds cash. An over-payment
+  stays a `refund` transaction (early departure), unchanged by this feature.
+- `bookings.totalPrice` stores the **NET** (discounted) figure, so
+  `SUM(transactions.amount)` still equals what the guest actually paid and every
+  existing balance/revenue calculation keeps working. The folio's original price
+  is therefore `totalPrice + discountAmount`.
+
+The monthly accounting report (`/api/admin/monthly-report`) exports a
+**DISCOUNT LEDGER** (date, folio, guest, room, gross, discount, net, reason)
+plus "Total Discounts Given" / "Discounted Folios" lines so every rupee given
+away is auditable.
 
 ---
 

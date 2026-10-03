@@ -4,7 +4,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { db, transactions, bookings, guests, rooms, expenses } from '../../../src/db';
-import { eq, sql, and, gte, lt, desc } from 'drizzle-orm';
+import { eq, sql, and, gte, gt, lt, desc } from 'drizzle-orm';
 import { sltToday } from '../../../lib/hotelDates';
 
 // Month names for display
@@ -29,6 +29,20 @@ interface ExpenseDetail {
   category: string;
   description: string | null;
   amount: number;
+}
+
+interface DiscountDetail {
+  date: string;
+  folioId: number;
+  guestName: string;
+  guestNic: string;
+  roomNumber: string;
+  /** What the room would have cost before the concession. */
+  grossAmount: number;
+  discountAmount: number;
+  /** What the guest was actually charged (stored as bookings.total_price). */
+  netCharged: number;
+  reason: string;
 }
 
 export default async function handler(
@@ -182,6 +196,51 @@ export default async function handler(
       : 0;
 
     // ========================================================================
+    // 3b. DISCOUNTS GRANTED THIS MONTH
+    //     A discount is a concession recorded when a folio was settled: a student
+    //     rate, a night where no cheaper room was free, a repeating customer,
+    //     goodwill. Revenue above is money actually collected, so it is already
+    //     NET of these amounts (the guest was never charged them) - they are
+    //     listed here so the owner can see what was given away and why.
+    // ========================================================================
+    const discountResults = await db
+      .select({
+        folioId: bookings.id,
+        date: bookings.discountAppliedAt,
+        amount: bookings.discountAmount,
+        reason: bookings.discountReason,
+        netTotal: bookings.totalPrice,
+        guestName: guests.name,
+        guestNic: guests.nicNumber,
+        roomNumber: rooms.number,
+      })
+      .from(bookings)
+      .innerJoin(guests, eq(bookings.guestId, guests.id))
+      .innerJoin(rooms, eq(bookings.roomId, rooms.id))
+      .where(
+        and(
+          gt(bookings.discountAmount, 0),
+          gte(bookings.discountAppliedAt, startDate),
+          lt(bookings.discountAppliedAt, endDate)
+        )
+      )
+      .orderBy(desc(bookings.discountAppliedAt));
+
+    const discountDetails: DiscountDetail[] = discountResults.map(d => ({
+      date: d.date ? sltToday(d.date) : '',
+      folioId: d.folioId,
+      guestName: d.guestName,
+      guestNic: d.guestNic,
+      roomNumber: d.roomNumber,
+      grossAmount: d.netTotal + d.amount,
+      discountAmount: d.amount,
+      netCharged: d.netTotal,
+      reason: d.reason ?? '',
+    }));
+
+    const totalDiscounts = discountDetails.reduce((sum, d) => sum + d.discountAmount, 0);
+
+    // ========================================================================
     // 4. CALCULATE EXPENSE BREAKDOWN BY CATEGORY
     // ========================================================================
     const expensesByCategory: Record<string, number> = {
@@ -238,6 +297,16 @@ export default async function handler(
     csvLines.push(`"Advance Payments Received","LKR ${advancePayments.toLocaleString()}"`);
     csvLines.push(`"Final Settlements Received","LKR ${finalSettlements.toLocaleString()}"`);
     csvLines.push('');
+
+    // DISCOUNTS GIVEN (informational): a concession lowers the price, it never
+    // moves cash, so the revenue lines above are already net of these amounts.
+    csvLines.push('DISCOUNTS GIVEN (concessions at check-out - already reflected in the revenue above)');
+    csvLines.push('--------------------------------------------------------------------------------');
+    csvLines.push(`"Gross Charges Before Discounts","LKR ${(totalRevenue + totalDiscounts).toLocaleString()}"`);
+    csvLines.push(`"Less: Guest Discounts Given","LKR ${totalDiscounts.toLocaleString()}"`);
+    csvLines.push(`"Net Revenue Collected","LKR ${totalRevenue.toLocaleString()}"`);
+    csvLines.push(`"Number of Discounted Folios","${discountDetails.length}"`);
+    csvLines.push('');
     
     csvLines.push('OPERATING EXPENSES');
     csvLines.push('--------------------------------------------------------------------------------');
@@ -271,6 +340,9 @@ export default async function handler(
     csvLines.push('');
     csvLines.push(`"Total Number of Expenses","${expenseResults.length}"`);
     csvLines.push('');
+    csvLines.push(`"Total Discounts Given","LKR ${totalDiscounts.toLocaleString()}"`);
+    csvLines.push(`"Discounted Folios","${discountDetails.length}"`);
+    csvLines.push('');
     
     // DETAILED TRANSACTIONS SECTION
     csvLines.push('================================================================================');
@@ -284,6 +356,24 @@ export default async function handler(
       transactionDetails.forEach(tx => {
         csvLines.push(
           `"${tx.date}","${tx.transactionId}","${tx.guestName}","${tx.guestNic}","${tx.roomNumber}","${tx.amount.toLocaleString()}","${tx.paymentMethod}","${tx.paymentType}"`
+        );
+      });
+    }
+    csvLines.push('');
+    
+    // DETAILED DISCOUNTS SECTION (audit trail: every rupee forgiven, and why)
+    csvLines.push('================================================================================');
+    csvLines.push('DISCOUNT LEDGER (concessions granted at check-out)');
+    csvLines.push('================================================================================');
+    csvLines.push('Date,Folio ID,Guest Name,NIC Number,Room Number,Gross Amount (LKR),Discount (LKR),Net Charged (LKR),Reason');
+    
+    if (discountDetails.length === 0) {
+      csvLines.push('"No discounts given in this period"');
+    } else {
+      discountDetails.forEach(d => {
+        const reason = d.reason.replace(/"/g, '""');
+        csvLines.push(
+          `"${d.date}","${d.folioId}","${d.guestName}","${d.guestNic}","${d.roomNumber}","${d.grossAmount.toLocaleString()}","${d.discountAmount.toLocaleString()}","${d.netCharged.toLocaleString()}","${reason}"`
         );
       });
     }

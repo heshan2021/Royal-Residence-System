@@ -67,8 +67,19 @@ export const bookings = pgTable('bookings', {
   roomId: integer('room_id').notNull().references(() => rooms.id),
   checkInDate: timestamp('check_in_date').notNull(),
   checkOutDate: timestamp('check_out_date'),
+  // What the guest is expected to pay. When a discount was granted at
+  // check-out this is the NET (discounted) amount, so the ledger still adds up
+  // to what the guest actually paid. The folio's original price is therefore
+  // `totalPrice + discountAmount`.
   totalPrice: integer('total_price').notNull(),
   status: varchar('status', { length: 20 }).notNull().default('active'),
+  // ---- Concession granted when the folio was settled -------------------
+  // Given for a stated reason (student, no cheaper room available, repeating
+  // customer, ...). A discount can only exist on a folio that was settled at
+  // check-out, and only with a reason - see lib/discounts.ts.
+  discountAmount: integer('discount_amount').notNull().default(0),
+  discountReason: varchar('discount_reason', { length: 255 }),
+  discountAppliedAt: timestamp('discount_applied_at'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

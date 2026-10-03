@@ -44,7 +44,7 @@ const RECONCILE_ROOMS = `UPDATE rooms r SET
   ) s
   WHERE s.id = r.id`;
 
-const TEST_NICS = ['CLINETESTA0001', 'CLINETESTB0001', 'CLINETESTC0001', 'CLINETESTX0001', 'CLINETESTH0001'];
+const TEST_NICS = ['CLINETESTA0001', 'CLINETESTB0001', 'CLINETESTC0001', 'CLINETESTX0001', 'CLINETESTH0001', 'CLINETESTI0001'];
 const results = [];
 function check(id, desc, ok, detail) {
   results.push({ id, desc, ok, detail });
@@ -338,6 +338,167 @@ async function roomOn(number, date) {
   check('H11', 'pendingBalance drops by exactly the amount that was collected at the desk',
     !!statsAfterH.json && statsAfterH.json.pendingBalance === owedBeforeH - 4500,
     `before=${owedBeforeH} after=${statsAfterH.json && statsAfterH.json.pendingBalance}`);
+
+  // ------------------------------------------------ I) discount at check-out
+  console.log('\n--- I) discount with a mandatory reason at check-out (D14) ---');
+  // The desk knocks money off a stay for a stated reason: a student rate, a night
+  // with no cheaper room free, a repeating customer, goodwill. Three rules are
+  // under test: the reason is mandatory, a discount may only ever forgive debt
+  // (never hand cash back), and everything given away stays traceable afterwards.
+  const iRoom = hRoom; // section H left this room free again
+  if (!iRoom) {
+    check('I1', 'discount scenario could not run: no free room today', false, 'see section H');
+  } else {
+    const iGross = 12000; // what the room would have cost: 2 nights @ 6000
+    const iGuest = await sql(
+      `INSERT INTO guests (name, phone_number, nic_number)
+       VALUES ('Cline Test Discount', '0770000009', 'CLINETESTI0001') RETURNING id`);
+    const iRows = await sql(
+      `INSERT INTO bookings (guest_id, room_id, check_in_date, check_out_date, total_price, status)
+       SELECT $1, r.id, $2::timestamp, $3::timestamp, $4, 'active'
+       FROM rooms r WHERE r.number = $5 RETURNING id`,
+      [iGuest[0].id,
+        utcStamp(`${yesterdaySLT}T14:00:00+05:30`),
+        utcStamp(`${todaySLT}T11:00:00+05:30`),
+        iGross, iRoom]);
+    const iBooking = iRows[0] ? iRows[0].id : null;
+    console.log(`        seeded discount folio #${iBooking}: room ${iRoom}, LKR ${iGross} owed, nothing paid`);
+
+    // I1 - the reason is not decoration: an unexplained discount is refused.
+    s = await api('POST', '/api/rooms/checkout', {
+      roomNumber: iRoom, date: todaySLT, bookingId: iBooking,
+      finalPayment: iGross - 2000, paymentMethod: 'Cash', discountAmount: 2000,
+    });
+    let iRow = await sql(
+      `SELECT status, total_price::int AS total, discount_amount::int AS disc,
+              discount_reason, discount_applied_at
+       FROM bookings WHERE id=$1`, [iBooking]);
+    check('I1', 'discount without a reason -> 400 and the folio stays open',
+      s.status === 400 && /reason is required/i.test(s.text)
+        && iRow[0].status === 'active' && iRow[0].disc === 0,
+      `status=${s.status} booking=${iRow[0] && iRow[0].status} disc=${iRow[0] && iRow[0].disc} ${s.text.slice(0, 100)}`);
+
+    // I2 - the cap is the debt, not the price: forgiving more than is owed would
+    //      leave the folio in credit, i.e. a cash refund in disguise.
+    s = await api('POST', '/api/rooms/checkout', {
+      roomNumber: iRoom, date: todaySLT, bookingId: iBooking,
+      finalPayment: 11000, paymentMethod: 'Cash', discountAmount: 2000, discountReason: 'Student',
+    });
+    check('I2', 'a discount larger than the outstanding balance -> 400 reporting the cap',
+      s.status === 400 && /larger than the outstanding balance/i.test(s.text)
+        && s.json && s.json.maxDiscount === 1000,
+      `status=${s.status} maxDiscount=${s.json && s.json.maxDiscount} ${s.text.slice(0, 110)}`);
+
+    // I3 - happy path: LKR 3000 off a 12000 folio, LKR 9000 collected, reason kept.
+    s = await api('POST', '/api/rooms/checkout', {
+      roomNumber: iRoom, date: todaySLT, bookingId: iBooking,
+      finalPayment: 9000, paymentMethod: 'Cash', discountAmount: 3000,
+      discountReason: 'Student — school group',
+    });
+    check('I3', 'a reasoned discount settles the folio and reports gross vs net',
+      s.status === 200 && s.json
+        && s.json.grossTotal === iGross && s.json.totalAmount === 9000
+        && s.json.discountAmount === 3000 && s.json.settled === true
+        && /discount/i.test(s.json.message || ''),
+      `status=${s.status} gross=${s.json && s.json.grossTotal} net=${s.json && s.json.totalAmount} disc=${s.json && s.json.discountAmount} settled=${s.json && s.json.settled}`);
+
+    iRow = await sql(
+      `SELECT status, total_price::int AS total, discount_amount::int AS disc,
+              discount_reason, discount_applied_at::text AS applied
+       FROM bookings WHERE id=$1`, [iBooking]);
+    check('I4', 'the folio keeps the NET price plus the concession audit trail',
+      iRow[0].status === 'completed' && iRow[0].total === 9000 && iRow[0].disc === 3000
+        && /^Student/.test(iRow[0].discount_reason || '') && !!iRow[0].applied,
+      `status=${iRow[0] && iRow[0].status} total=${iRow[0] && iRow[0].total} disc=${iRow[0] && iRow[0].disc} reason=${iRow[0] && iRow[0].discount_reason} at=${iRow[0] && iRow[0].applied}`);
+
+    const iTx = await sql(
+      `SELECT amount::int AS amount, payment_type FROM transactions WHERE booking_id=$1 ORDER BY id`,
+      [iBooking]);
+    const iPaid = iTx.reduce((sum, t) => sum + t.amount, 0);
+    check('I5', 'the ledger reconciles: cash collected = net price, discount = shortfall to gross',
+      iTx.length === 1 && iPaid === 9000 && !iTx.some((t) => t.payment_type === 'refund')
+        && iPaid + iRow[0].disc === iGross,
+      `paid=${iPaid} disc=${iRow[0].disc} gross=${iGross} rows=${JSON.stringify(iTx)}`);
+
+    const rDisc = await roomOn(iRoom, todaySLT);
+    check('I6', 'the discounted folio releases its room like any other check-out',
+      !!rDisc && rDisc.isOccupied === false && !rDisc.guestName,
+      rDisc ? `isOccupied=${rDisc.isOccupied} guest=${rDisc.guestName}` : `room ${iRoom} missing`);
+
+    // I7 - a folio that is already paid in full has nothing left to forgive:
+    //      the desk cannot hand a discount out as if it were cash.
+    const iPrepaidRows = await sql(
+      `INSERT INTO bookings (guest_id, room_id, check_in_date, check_out_date, total_price, status)
+       SELECT $1, r.id, $2::timestamp, $3::timestamp, 5000, 'active'
+       FROM rooms r WHERE r.number = $4 RETURNING id`,
+      [iGuest[0].id,
+        utcStamp(`${yesterdaySLT}T14:00:00+05:30`),
+        utcStamp(`${todaySLT}T11:00:00+05:30`),
+        iRoom]);
+    const iPrepaid = iPrepaidRows[0] ? iPrepaidRows[0].id : null;
+    await sql(
+      `INSERT INTO transactions (booking_id, amount, payment_method, payment_type, created_at)
+       VALUES ($1, 5000, 'Cash', 'advance', $2::timestamp)`,
+      [iPrepaid, utcStamp(`${todaySLT}T09:30:00+05:30`)]);
+
+    s = await api('POST', '/api/rooms/checkout', {
+      roomNumber: iRoom, date: todaySLT, bookingId: iPrepaid,
+      discountAmount: 500, discountReason: 'Repeating customer',
+    });
+    const iPrepaidBefore = await sql(
+      `SELECT status, discount_amount::int AS disc FROM bookings WHERE id=$1`, [iPrepaid]);
+    check('I7', 'a fully paid folio has nothing to discount -> 400, folio untouched',
+      s.status === 400 && /nothing left to discount/i.test(s.text)
+        && iPrepaidBefore[0].status === 'active' && iPrepaidBefore[0].disc === 0,
+      `status=${s.status} booking=${iPrepaidBefore[0] && iPrepaidBefore[0].status} disc=${iPrepaidBefore[0] && iPrepaidBefore[0].disc} ${s.text.slice(0, 110)}`);
+
+    // ...and the very same folio still closes cleanly with no discount, which
+    // proves the refusal above was about the discount, not about the check-out.
+    s = await api('POST', '/api/rooms/checkout', { roomNumber: iRoom, date: todaySLT, bookingId: iPrepaid });
+    const iPrepaidAfter = await sql(
+      `SELECT status, total_price::int AS total, discount_amount::int AS disc, discount_applied_at
+       FROM bookings WHERE id=$1`, [iPrepaid]);
+    check('I8', 'the same folio closes with no discount and no audit-trail noise',
+      s.status === 200 && iPrepaidAfter[0].status === 'completed'
+        && iPrepaidAfter[0].total === 5000 && iPrepaidAfter[0].disc === 0
+        && iPrepaidAfter[0].discount_applied_at === null,
+      `status=${s.status} booking=${iPrepaidAfter[0] && iPrepaidAfter[0].status} total=${iPrepaidAfter[0] && iPrepaidAfter[0].total} disc=${iPrepaidAfter[0] && iPrepaidAfter[0].disc}`);
+
+    // I9/I10 - what was given away, and why, has to reach the owner's report.
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const [sltYear, sltMonth] = todaySLT.split('-').map(Number);
+    const nextSLTMonth = sltMonth === 12 ? { y: sltYear + 1, m: 1 } : { y: sltYear, m: sltMonth + 1 };
+    const rawMonthDiscounts = await sql(
+      `SELECT COUNT(*)::int AS n, COALESCE(SUM(discount_amount),0)::int AS s
+       FROM bookings
+       WHERE discount_amount > 0
+         AND discount_applied_at >= $1::timestamp
+         AND discount_applied_at < $2::timestamp`,
+      [utcStamp(`${sltYear}-${pad2(sltMonth)}-01T00:00:00+05:30`),
+        utcStamp(`${nextSLTMonth.y}-${pad2(nextSLTMonth.m)}-01T00:00:00+05:30`)]);
+
+    const report = await api('GET', `/api/admin/monthly-report?month=${sltMonth}&year=${sltYear}`);
+    const reportText = typeof report.text === 'string' ? report.text : '';
+    const csvMoney = (label) => {
+      const m = reportText.match(new RegExp(`"${label}","LKR ([0-9,]+)"`));
+      return m ? Number(m[1].replace(/,/g, '')) : null;
+    };
+    const csvCount = (label) => {
+      const m = reportText.match(new RegExp(`"${label}","([0-9]+)"`));
+      return m ? Number(m[1]) : null;
+    };
+
+    check('I9', 'monthly report carries the concession with its folio id and reason',
+      report.status === 200 && reportText.includes('DISCOUNT LEDGER')
+        && reportText.includes(`,"${iBooking}",`) && reportText.includes('Student'),
+      `status=${report.status} hasLedger=${reportText.includes('DISCOUNT LEDGER')} hasFolio=${reportText.includes(`,"${iBooking}",`)}`);
+
+    check('I10', 'reported discount count and total match the database for that month',
+      csvCount('Discounted Folios') === rawMonthDiscounts[0].n
+        && csvMoney('Less: Guest Discounts Given') === rawMonthDiscounts[0].s
+        && csvMoney('Net Revenue Collected') !== null,
+      `count=${csvCount('Discounted Folios')} rawCount=${rawMonthDiscounts[0].n} total=${csvMoney('Less: Guest Discounts Given')} rawTotal=${rawMonthDiscounts[0].s}`);
+  }
 
   // ------------------------------------------------ G) accounting
   console.log('\n--- G) accounting surface ---');
