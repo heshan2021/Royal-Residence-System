@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Building2, Users, DoorOpen, DollarSign, Plus, Calendar } from 'lucide-react';
+import { Building2, Users, DoorOpen, DollarSign, Plus, Calendar, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { RoomCard } from './RoomCard';
@@ -41,16 +41,27 @@ export default function DashboardView({ targetDate, selectedDate, onDateChange, 
   const [isLoading, setIsLoading] = useState(false); // Start as false since we have initial data
   const [statistics, setStatistics] = useState(initialStatistics);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const loadRooms = useCallback(async () => {
     setIsLoading(true);
     try {
       const roomsData = await getAllRooms(selectedDate ? new Date(selectedDate) : undefined);
       const stats = await getRoomStatistics(selectedDate ? new Date(selectedDate) : undefined);
+      // A failed refresh must never blank the board: an empty grid reads as "all the
+      // bookings vanished" to a receptionist mid-shift. `getAllRooms` swallows fetch
+      // errors and resolves to [], so only a real answer replaces what is on screen.
+      if (roomsData.length === 0) {
+        console.error('Room refresh returned no rooms; keeping the last known grid.');
+        setLoadFailed(true);
+        return;
+      }
       setRooms(roomsData);
       setStatistics(stats);
+      setLoadFailed(false);
     } catch (error) {
       console.error('Failed to load rooms:', error);
+      setLoadFailed(true);
     } finally {
       setIsLoading(false);
     }
@@ -106,25 +117,33 @@ export default function DashboardView({ targetDate, selectedDate, onDateChange, 
   ) => {
     if (!selectedRoom) return;
     try {
-      const updatedRoom = await checkOutGuest(selectedRoom.id, {
+      await checkOutGuest(selectedRoom.id, {
         finalPayment,
         paymentMethod,
+        // Close the folio this card is showing. An overdue folio (a stay that
+        // already ended) must not be confused with whatever covers today.
+        bookingId: selectedRoom.bookingId,
         // Resolve the booking that covers the day the receptionist is viewing.
         date: selectedDate ? new Date(selectedDate) : undefined,
         earlyDeparture,
       });
-      setRooms(prevRooms => prevRooms.map(room => room.id === selectedRoom.id ? updatedRoom : room));
-      const stats = await getRoomStatistics(selectedDate ? new Date(selectedDate) : undefined);
-      setStatistics(stats);
+      // Re-read the whole grid from the server. Patching the local map was unsafe:
+      // the check-out may release one folio while another is still open on the room.
+      await loadRooms();
       setModalType(null);
       setSelectedRoom(null);
     } catch (error) {
       console.error('Failed to check out guest:', error);
-      alert(error instanceof Error ? error.message : 'Failed to check out guest. Please try again.');
+      // Let the modal render the server's reason (e.g. a balance that must be
+      // collected first) and re-enable its button.
+      throw error instanceof Error ? error : new Error('Failed to check out guest');
     }
-  }, [selectedRoom, selectedDate]);
+  }, [selectedRoom, selectedDate, loadRooms]);
 
-  if (isLoading) {
+  // Only a *first* load may take over the screen. Every later refresh keeps the
+  // board mounted, so a slow or hanging request can no longer make every room
+  // disappear behind a spinner (which reads as "the bookings are gone").
+  if (isLoading && rooms.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
@@ -140,6 +159,26 @@ export default function DashboardView({ targetDate, selectedDate, onDateChange, 
 
   return (
     <>
+      {/* Refresh failure: the board still shows its last known state, and says so. */}
+      {loadFailed && (
+        <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-amber-50 border border-amber-200 rounded-2xl px-6 py-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+            <p className="text-sm font-medium text-amber-900">
+              Could not refresh the room list — showing the last known state. Check the connection, then retry.
+            </p>
+          </div>
+          <button
+            onClick={loadRooms}
+            disabled={isLoading}
+            className="shrink-0 px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-60
+                     text-white rounded-xl text-sm font-medium transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Date Picker - Minimalistic Time Machine */}
       <div className="mb-10">
         <div className="bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl p-6 shadow-sm">
@@ -296,6 +335,8 @@ export default function DashboardView({ targetDate, selectedDate, onDateChange, 
           totalAmount={selectedRoom.totalAmount}
           paidAmount={selectedRoom.paidAmount}
           isDueOut={selectedRoom.isDueOut}
+          isOverdue={selectedRoom.isOverdue}
+          overdueDays={selectedRoom.overdueDays}
           onSwitchToCheckIn={() => setModalType('checkin')}
           onConfirm={handleCheckOut}
           onClose={() => { setModalType(null); setSelectedRoom(null); }}

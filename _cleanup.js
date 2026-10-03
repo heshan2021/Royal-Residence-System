@@ -8,7 +8,7 @@ const pool = new Pool({
   connectionString: process.env.NEXT_PUBLIC_NEON_DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
-const TEST_NICS = ['CLINETESTA0001', 'CLINETESTB0001', 'CLINETESTC0001', 'CLINETESTX0001'];
+const TEST_NICS = ['CLINETESTA0001', 'CLINETESTB0001', 'CLINETESTC0001', 'CLINETESTX0001', 'CLINETESTH0001'];
 
 /* rooms.* is a display cache of `bookings` (lib/roomState.ts); deleting rows
    out-of-band must be followed by re-deriving it. */

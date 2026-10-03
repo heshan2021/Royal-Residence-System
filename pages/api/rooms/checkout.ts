@@ -6,6 +6,11 @@
 //        "first active booking for the room" (which used to close stale rows).
 //  E-4 - the departure is stamped with the hotel check-out slot (11:00 SLT) of
 //        the viewed day instead of `new Date()`, which created phantom stays.
+//  B29 - a folio left open past its stay is still reachable: the booking is
+//        resolved from an explicit `bookingId`, the day being viewed, or the
+//        room's most recent UNCLOSED folio (an `active` booking whose window
+//        already ended). Such a folio is stamped with its OWN scheduled
+//        check-out slot, so closing it late never stretches the stay.
 //  B16 - early departure re-prices the folio for the nights actually consumed.
 //  B17 - an over-payment caused by early departure is recorded as a refund row.
 //  D13 - a scheduled check-out is refused while the folio still owes money; an
@@ -14,7 +19,7 @@
 //  E-6 - room flags are re-derived from bookings instead of blanket-nulled.
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { and, eq, gte, isNull, lte, or } from 'drizzle-orm';
+import { and, eq, gte, isNull, lt, lte, or } from 'drizzle-orm';
 import { db, rooms, bookings, transactions } from '../../../src/db';
 import {
   formatHotelDate,
@@ -30,6 +35,7 @@ import { reconcileRoom } from '../../../lib/roomState';
 interface CheckOutRequest {
   roomNumber: string;
   date?: string; // calendar day being viewed, 'YYYY-MM-DD' (defaults to today SLT)
+  bookingId?: number; // the exact folio to close (a dashboard card knows its own id)
   finalPayment?: number;
   paymentMethod?: 'Cash' | 'Bank';
   earlyDeparture?: boolean; // guest leaves before their booked check-out date
@@ -80,16 +86,53 @@ export default async function handler(
       return res.status(404).json({ error: `Room ${roomNumber} not found` });
     }
 
-    // 2. Find the booking that actually covers the day being viewed.
-    //    Occupancy is derived from bookings - `rooms.is_occupied` is only a cache.
+    // 2. Find the folio to close. Occupancy is derived from bookings -
+    //    `rooms.is_occupied` is only a cache.
+    //
+    //    Resolution order:
+    //      a) the exact folio the dashboard asked for (`bookingId`),
+    //      b) the booking that covers the day being viewed,
+    //      c) the room's most recent UNCLOSED folio - an `active` booking whose
+    //         stay window already ended. Without (c) those folios were unreachable
+    //         on every later day, so the money they owe could never be collected.
     const dayBounds = sltDayBounds(viewDate);
 
-    const booking = await db.query.bookings.findFirst({
+    const requestedBookingId = Number(body.bookingId);
+    const hasRequestedBookingId = Number.isInteger(requestedBookingId) && requestedBookingId > 0;
+
+    const requestedBooking = hasRequestedBookingId
+      ? await db.query.bookings.findFirst({
+          where: and(
+            eq(bookings.id, requestedBookingId),
+            eq(bookings.roomId, room.id),
+            eq(bookings.status, 'active')
+          ),
+        })
+      : null;
+
+    if (hasRequestedBookingId && !requestedBooking) {
+      return res.status(404).json({
+        error: `Booking ${requestedBookingId} is not an active booking for room ${roomNumber}`,
+      });
+    }
+
+    const dayBooking = requestedBooking
+      ? null
+      : await db.query.bookings.findFirst({
+          where: and(
+            eq(bookings.roomId, room.id),
+            eq(bookings.status, 'active'),
+            lte(bookings.checkInDate, dayBounds.end),
+            or(isNull(bookings.checkOutDate), gte(bookings.checkOutDate, dayBounds.start))
+          ),
+          orderBy: (bookings, { desc: descOrder }) => [descOrder(bookings.checkInDate)],
+        });
+
+    const booking = requestedBooking ?? dayBooking ?? await db.query.bookings.findFirst({
       where: and(
         eq(bookings.roomId, room.id),
         eq(bookings.status, 'active'),
-        lte(bookings.checkInDate, dayBounds.end),
-        or(isNull(bookings.checkOutDate), gte(bookings.checkOutDate, dayBounds.start))
+        lt(bookings.checkOutDate, dayBounds.start) // stay window ended before this day
       ),
       orderBy: (bookings, { desc: descOrder }) => [descOrder(bookings.checkInDate)],
     });
@@ -100,8 +143,17 @@ export default async function handler(
       });
     }
 
-    // 3. Determine the departure instant (hotel check-out slot of the viewed day).
-    let departureInstant = hotelSlotInstant(viewDate, 'check-out');
+    // 3. Determine the departure instant (hotel check-out slot).
+    //    Normal case: the 11:00 slot of the day being viewed.
+    //    Unclosed folio: its OWN scheduled check-out slot, so closing a stale folio
+    //    days later never stretches the stay (and never inflates its total).
+    const scheduledCheckOutDay = booking.checkOutDate ? sltToday(booking.checkOutDate) : null;
+    const folioWasOverdue = scheduledCheckOutDay !== null && scheduledCheckOutDay < viewDate;
+
+    let departureInstant = folioWasOverdue
+      ? hotelSlotInstant(scheduledCheckOutDay as string, 'check-out')
+      : hotelSlotInstant(viewDate, 'check-out');
+
     if (departureInstant < booking.checkInDate) {
       // Guest only arrived today, after the 11:00 check-out slot: a same-day
       // departure cannot be stamped earlier than the arrival.
@@ -230,11 +282,14 @@ export default async function handler(
       refundDue,
       outstandingBalance: uncollected,
       settled: uncollected === 0,
+      wasOverdue: folioWasOverdue,
       message: earlyDepartureApplied
         ? `Room ${roomNumber} early departure: ${nights} night(s) charged, LKR ${total.toLocaleString()}${
             uncollected > 0 ? ` (LKR ${uncollected.toLocaleString()} still owed)` : ''
           }`
-        : `Room ${roomNumber} checked out successfully`,
+        : folioWasOverdue
+          ? `Room ${roomNumber} checked out successfully (unclosed folio from ${formatHotelDate(booking.checkOutDate as Date)} settled)`
+          : `Room ${roomNumber} checked out successfully`,
     });
 
   } catch (error) {

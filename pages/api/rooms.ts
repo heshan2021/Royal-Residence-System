@@ -2,7 +2,19 @@
 // API endpoint to get all rooms with booking and payment information
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { db, rooms, bookings, transactions, guests } from '../../src/db';
-import { eq, and, sum, lte, gt, gte, isNull, or } from 'drizzle-orm';
+import { eq, and, sum, lte, lt, gte, isNull, or } from 'drizzle-orm';
+import { parseDateOnly, sltDayBounds, sltToday } from '../../lib/hotelDates';
+
+/**
+ * Whole Sri Lankan days between two `YYYY-MM-DD` days (used for "overdue N days").
+ */
+function daysBetweenDays(fromDay: string, toDay: string): number {
+  const [fy, fm, fd] = fromDay.split('-').map(Number);
+  const [ty, tm, td] = toDay.split('-').map(Number);
+  const from = Date.UTC(fy, fm - 1, fd);
+  const to = Date.UTC(ty, tm - 1, td);
+  return Math.max(0, Math.round((to - from) / 86_400_000));
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -15,28 +27,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   res.setHeader('Expires', '0');
 
   try {
-    // Parse date parameter from query string (format: YYYY-MM-DD)
-    const dateParam = req.query.date as string | undefined;
-    let targetDateStart: Date;
-    let targetDateEnd: Date;
-    
-    if (dateParam) {
-      // Parse the date string and create start/end of day boundaries
-      // This ensures we check for bookings that overlap with ANY part of the target date
-      const [year, month, day] = dateParam.split('-').map(Number);
-      if (!year || !month || !day) {
-        return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
-      }
-      // Start of day (00:00:00)
-      targetDateStart = new Date(year, month - 1, day, 0, 0, 0, 0);
-      // End of day (23:59:59.999)
-      targetDateEnd = new Date(year, month - 1, day, 23, 59, 59, 999);
-    } else {
-      // Default to today
-      const now = new Date();
-      targetDateStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-      targetDateEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    // The day being viewed is always a Sri Lankan calendar day, because every
+    // booking window is stored as the UTC instant of a hotel slot (14:00 / 11:00
+    // Asia/Colombo). Defaults to today in Sri Lanka.
+    const parsedViewDate = parseDateOnly(req.query.date ?? sltToday(), 'date');
+    if (!parsedViewDate.ok) {
+      return res.status(400).json({ error: parsedViewDate.error });
     }
+    const viewDateOnly = parsedViewDate.value;
+    const { start: targetDateStart, end: targetDateEnd } = sltDayBounds(viewDateOnly);
 
     // Get all rooms - use select instead of findMany to avoid automatic column selection
     const allRooms = await db.select({
@@ -53,17 +52,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       updatedAt: rooms.updatedAt,
     }).from(rooms).orderBy(rooms.number);
 
-    // For each room, check if it's occupied on the target date
+    /** Everything the dashboard needs to describe one folio (booking). */
+    const folioSummary = async (booking: {
+      id: number;
+      guestId: number;
+      totalPrice: number;
+      checkOutDate: Date | null;
+    }) => {
+      // Payments on a folio are always summed from the ledger.
+      const paymentsResult = await db
+        .select({ total: sum(transactions.amount) })
+        .from(transactions)
+        .where(eq(transactions.bookingId, booking.id));
+
+      const guest = await db.query.guests.findFirst({
+        where: eq(guests.id, booking.guestId),
+      });
+
+      const checkOutDate = booking.checkOutDate ?? null;
+      return {
+        bookingId: booking.id,
+        guestName: guest?.name ?? undefined,
+        phoneNumber: guest?.phoneNumber ?? undefined,
+        nicNumber: guest?.nicNumber ?? undefined,
+        totalAmount: Number(booking.totalPrice) || 0,
+        paidAmount: Number(paymentsResult[0]?.total) || 0,
+        // Scheduled departure day -> how long the folio has been left open.
+        overdueDays: checkOutDate
+          ? daysBetweenDays(sltToday(checkOutDate), viewDateOnly)
+          : 0,
+        checkOutTime: checkOutDate ? checkOutDate.toISOString() : null,
+      };
+    };
+
+    // For each room, check if it is occupied on the target date
     const roomsWithPayments = await Promise.all(
       allRooms.map(async (room) => {
-        let totalAmount = 0;
-        let paidAmount = 0;
-        let isOccupiedOnTargetDate = false;
-        let guestName: string | undefined;
-        let phoneNumber: string | undefined;
-        let nicNumber: string | undefined;
-        let checkOutTimeDisplay: string | undefined;
-
         // A room is "Occupied" on targetDate IF there is a booking where check_out_date > end of target day
         // A room is "Due Out" on targetDate IF there is a booking where check_out_date is within the target date
         const activeBookingsOnDate = await db.query.bookings.findMany({
@@ -79,52 +103,52 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           orderBy: (bookings, { asc }) => [asc(bookings.checkInDate)],
         });
 
-        let isDueOutOnTargetDate = false;
-        
+        // Unclosed folios: still `active`, but the stay window ended BEFORE the day
+        // being viewed. Left unchecked these rows vanished from the dashboard, so the
+        // money they owe could never be collected. They now keep the room on the grid
+        // as "Not Checked Out" until the folio is settled and closed.
+        const unclosedBookings = await db.query.bookings.findMany({
+          where: and(
+            eq(bookings.roomId, room.id),
+            eq(bookings.status, 'active'),
+            lt(bookings.checkOutDate, targetDateStart) // window ended before this day
+          ),
+          // Oldest first: the longest-standing debt is the one on the card.
+          orderBy: (bookings, { asc }) => [asc(bookings.checkInDate)],
+        });
+
         // Find if we have a departing guest and/or a staying guest
         const departingBooking = activeBookingsOnDate.find(b => b.checkOutDate && b.checkOutDate <= targetDateEnd);
         const stayingBooking = activeBookingsOnDate.find(b => !b.checkOutDate || b.checkOutDate > targetDateEnd);
 
-        if (stayingBooking) {
-          isOccupiedOnTargetDate = true;
-        }
-
-        if (departingBooking) {
-          isDueOutOnTargetDate = true;
-        }
-
         // Prioritize departing booking so the receptionist can process their checkout folio
-        const activeBookingOnDate = departingBooking || stayingBooking;
+        let activeBookingOnDate = departingBooking || stayingBooking;
 
-        if (activeBookingOnDate) {
-          isOccupiedOnTargetDate = true;
-          totalAmount = activeBookingOnDate.totalPrice;
+        if (!activeBookingOnDate && unclosedBookings.length > 0) {
+          activeBookingOnDate = unclosedBookings[0];
+        }
 
-          // Get sum of all transactions for this booking
-          const paymentsResult = await db
-            .select({ total: sum(transactions.amount) })
-            .from(transactions)
-            .where(eq(transactions.bookingId, activeBookingOnDate.id));
+        const isOverdue = !!activeBookingOnDate?.checkOutDate
+          && activeBookingOnDate.checkOutDate < targetDateStart;
 
-          paidAmount = Number(paymentsResult[0]?.total) || 0;
+        const summary = activeBookingOnDate
+          ? await folioSummary(activeBookingOnDate)
+          : null;
 
-          // Get guest information from the booking
-          const guest = await db.query.guests.findFirst({
-            where: eq(guests.id, activeBookingOnDate.guestId),
+        // Any other unclosed folio on this room stays visible too (it is settled
+        // from the room's own check-out view once the card's folio is closed).
+        const openFolios = [];
+        for (const booking of unclosedBookings) {
+          if (summary && booking.id === summary.bookingId) continue;
+          const folio = await folioSummary(booking);
+          openFolios.push({
+            bookingId: folio.bookingId,
+            guestName: folio.guestName ?? null,
+            totalAmount: folio.totalAmount,
+            paidAmount: folio.paidAmount,
+            checkOutDate: folio.checkOutTime,
+            overdueDays: folio.overdueDays,
           });
-
-          if (guest) {
-            guestName = guest.name;
-            phoneNumber = guest.phoneNumber;
-            nicNumber = guest.nicNumber;
-          }
-
-          // Format checkOutTime
-          if (activeBookingOnDate.checkOutDate) {
-            checkOutTimeDisplay = activeBookingOnDate.checkOutDate.toISOString();
-          } else {
-            checkOutTimeDisplay = 'Long-term';
-          }
         }
 
         return {
@@ -132,14 +156,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           number: room.number,
           price: room.price ? parseFloat(room.price) : null,
           amenities: room.amenities || [],
-          isOccupied: isOccupiedOnTargetDate,
-          isDueOut: isDueOutOnTargetDate,
-          guestName,
-          phoneNumber,
-          nicNumber,
-          checkOutTime: checkOutTimeDisplay,
-          totalAmount,
-          paidAmount,
+          isOccupied: !!summary,
+          isDueOut: !!departingBooking,
+          isOverdue,
+          overdueDays: isOverdue && summary ? summary.overdueDays : undefined,
+          bookingId: summary?.bookingId,
+          openFolios,
+          guestName: summary?.guestName,
+          phoneNumber: summary?.phoneNumber,
+          nicNumber: summary?.nicNumber,
+          checkOutTime: summary ? (summary.checkOutTime ?? 'Long-term') : undefined,
+          totalAmount: summary?.totalAmount ?? 0,
+          paidAmount: summary?.paidAmount ?? 0,
         };
       })
     );

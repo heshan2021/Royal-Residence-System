@@ -6,6 +6,17 @@ export interface Guest {
   nic_number: string;
 }
 
+// A folio that is still `active` even though its stay window has already ended.
+// It keeps the room on the dashboard until it is paid AND checked out.
+export interface OpenFolio {
+  bookingId: number;        // Booking the check-out action must target
+  guestName: string | null;
+  totalAmount: number;      // Folio total
+  paidAmount: number;       // Money recorded against the folio so far
+  checkOutDate: string | null; // ISO instant of the scheduled check-out slot
+  overdueDays: number;      // Whole Sri Lankan days since that check-out day
+}
+
 export interface Room {
   id: string;
   number: string;
@@ -13,6 +24,10 @@ export interface Room {
   amenities: string[];
   isOccupied: boolean;
   isDueOut?: boolean; // True if the room has a guest departing today
+  isOverdue?: boolean; // True when an active folio was never closed after its stay ended
+  overdueDays?: number; // Whole Sri Lankan days since the unclosed folio's check-out day
+  bookingId?: number; // Booking the card's check-out action should target
+  openFolios?: OpenFolio[]; // Any further unclosed folios on this room (informational)
   checkOutTime?: string;
   guestName?: string;
   phoneNumber?: string;

@@ -13,6 +13,8 @@ interface CheckOutModalProps {
   totalAmount?: number;
   paidAmount?: number;
   isDueOut?: boolean;
+  isOverdue?: boolean;
+  overdueDays?: number;
   onSwitchToCheckIn?: () => void;
   onConfirm: (finalPayment?: number, paymentMethod?: PaymentMethod, earlyDeparture?: boolean) => void | Promise<void>;
   onClose: () => void;
@@ -27,6 +29,8 @@ export function CheckOutModal({
   totalAmount = 0,
   paidAmount = 0,
   isDueOut,
+  isOverdue,
+  overdueDays,
   onSwitchToCheckIn,
   onConfirm,
   onClose,
@@ -99,9 +103,26 @@ export function CheckOutModal({
         </button>
 
         <h2 className="text-2xl font-bold text-gray-900 mb-1">
-          {isDueOut ? 'Process Checkout (Due Out)' : 'Check-Out'}
+          {isOverdue ? 'Process Checkout (Not Checked Out)' : isDueOut ? 'Process Checkout (Due Out)' : 'Check-Out'}
         </h2>
         <p className="text-gray-600 mb-6 text-sm">Room {room}</p>
+
+        {/* Unclosed folio: the stay window ended but the folio was never settled */}
+        {isOverdue && (
+          <div className="mb-6 p-4 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-3">
+            <AlertCircle size={18} className="text-rose-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-rose-800">This stay has already ended</p>
+              <p className="text-xs text-rose-600 mt-1">
+                The folio was left open
+                {overdueDays && overdueDays > 0
+                  ? ` ${overdueDays} day${overdueDays > 1 ? 's' : ''} ago`
+                  : ''}
+                . Collect the balance below to close it and release room {room}.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Guest Details (Read-only) */}
         <div className="space-y-4 mb-7 p-4 bg-gray-50 border border-gray-200 rounded-xl">
@@ -155,7 +176,10 @@ export function CheckOutModal({
           </div>
         </div>
 
-        {/* Early Departure (re-pricing + refund) */}
+        {/* Early Departure (re-pricing + refund).
+            Not offered for an unclosed folio: the stay already ran to its booked
+            check-out date, so there are no unused nights to refund. */}
+        {!isOverdue && (
         <div className={`mb-7 p-4 rounded-xl border ${isEarlyDeparture ? 'bg-sky-50 border-sky-200' : 'bg-gray-50 border-gray-200'}`}>
           <label className="flex items-start gap-3 cursor-pointer">
             <input
@@ -173,6 +197,7 @@ export function CheckOutModal({
             </span>
           </label>
         </div>
+        )}
 
         {/* Final Payment Section (only if balance due) */}
         {balanceDue > 0 && (

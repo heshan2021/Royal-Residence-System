@@ -160,6 +160,9 @@ export async function checkInGuest(roomId: string, checkInData: CheckInData): Pr
  * @param roomId - Room ID
  * @param options.date - The hotel day being viewed/checked out (defaults to today in Sri Lanka).
  *                       The server resolves the booking that covers this day.
+ * @param options.bookingId - The exact folio to close. The dashboard card sends the
+ *                            booking it is showing, so an unclosed folio (a stay that
+ *                            already ended) can still be settled from a later day.
  * @param options.finalPayment - Optional final payment amount
  * @param options.paymentMethod - Optional payment method for final payment
  * @param options.earlyDeparture - True when the guest leaves before the booked check-out date;
@@ -172,10 +175,11 @@ export async function checkOutGuest(
     finalPayment?: number;
     paymentMethod?: PaymentMethod;
     date?: Date;
+    bookingId?: number;
     earlyDeparture?: boolean;
   } = {}
 ): Promise<UIRoom> {
-  const { finalPayment, paymentMethod, date, earlyDeparture } = options;
+  const { finalPayment, paymentMethod, date, bookingId, earlyDeparture } = options;
   // Extract room number from ID
   const roomNumber = roomId.replace('room-', '');
   
@@ -197,6 +201,9 @@ export async function checkOutGuest(
       },
       body: JSON.stringify({
         roomNumber,
+        // The folio the receptionist is looking at (keeps an overdue card's
+        // check-out aimed at its own booking instead of whatever covers today).
+        bookingId,
         finalPayment,
         paymentMethod,
         // The hotel day the receptionist is looking at, in Sri Lanka time.
@@ -209,8 +216,30 @@ export async function checkOutGuest(
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.error || `Check-out failed: ${response.status}`);
     }
-    
-    // Return the cleared room
+
+    // The server re-derives the room from the bookings table, so trust its copy
+    // instead of fabricating a vacant room here (that mask used to hide a room
+    // that still had an open folio).
+    const result = await response.json().catch(() => null);
+    const serverRoom = result?.room;
+    if (serverRoom && typeof serverRoom === 'object' && serverRoom.number) {
+      return {
+        id: roomId,
+        number: roomNumber,
+        price: room.price,
+        amenities: room.amenities || [],
+        isOccupied: serverRoom.isOccupied === true,
+        guestName: serverRoom.guestName ?? undefined,
+        phoneNumber: serverRoom.phoneNumber ?? undefined,
+        nicNumber: serverRoom.nicNumber ?? undefined,
+        checkOutTime: serverRoom.checkOutTime ?? undefined,
+        totalAmount: undefined,
+        paidAmount: undefined,
+        paymentMethod: undefined,
+      };
+    }
+
+    // Fallback: the room is released by this check-out.
     return {
       id: roomId,
       number: roomNumber,

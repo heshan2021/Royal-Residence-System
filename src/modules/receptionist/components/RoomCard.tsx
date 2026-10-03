@@ -2,6 +2,7 @@
 
 import { Bath, Wind, Maximize, User, Clock, CreditCard, AlertCircle, CheckCircle } from 'lucide-react';
 import { Room } from '../../../../types/room';
+import { formatHotelDate } from '../../../../lib/hotelDates';
 
 interface RoomCardProps {
   room: Room;
@@ -10,6 +11,10 @@ interface RoomCardProps {
 
 export function RoomCard({ room, onClick }: RoomCardProps) {
   const isLocked = room.id === 'room-301';
+  // A folio that was never closed after its stay ended ("Not Checked Out").
+  const isOverdue = room.isOverdue === true;
+  const overdueDays = room.overdueDays || 0;
+  const openFolios = room.openFolios || [];
   
   // Calculate payment status
   const getPaymentStatus = () => {
@@ -24,7 +29,12 @@ export function RoomCard({ room, onClick }: RoomCardProps) {
   };
 
   const paymentStatus = getPaymentStatus();
-  const amountDue = room.totalAmount && room.paidAmount ? room.totalAmount - room.paidAmount : 0;
+  const amountDue = Math.max(0, (room.totalAmount || 0) - (room.paidAmount || 0));
+  // Scheduled departure slot of the folio shown on this card.
+  const checkOutDay =
+    room.checkOutTime && room.checkOutTime !== 'Long-term'
+      ? formatHotelDate(new Date(room.checkOutTime))
+      : null;
 
   return (
     <button
@@ -38,7 +48,8 @@ export function RoomCard({ room, onClick }: RoomCardProps) {
       <div
         className={`
           glass-card p-5 h-full
-          ${room.isDueOut ? 'border-[1.5px] border-amber-300 bg-amber-50/60 shadow-[0_0_15px_rgba(251,191,36,0.15)]' : 
+          ${isOverdue ? 'border-[1.5px] border-rose-400 bg-rose-50/70 shadow-[0_0_15px_rgba(244,63,94,0.18)]' :
+            room.isDueOut ? 'border-[1.5px] border-amber-300 bg-amber-50/60 shadow-[0_0_15px_rgba(251,191,36,0.15)]' : 
             room.isOccupied ? 'border-rose-100 bg-rose-50/30' : 'border-emerald-100 bg-white'}
           ${!isLocked ? 'hover:shadow-lg hover:scale-[1.02]' : ''}
           transition-all duration-200
@@ -59,10 +70,12 @@ export function RoomCard({ room, onClick }: RoomCardProps) {
           </div>
           <div className="flex flex-col items-end gap-2">
             <span className={
+              isOverdue ? 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide uppercase bg-gradient-to-r from-rose-600 to-rose-400 text-white shadow-sm' :
               room.isDueOut ? 'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide uppercase bg-gradient-to-r from-amber-500 to-orange-400 text-white shadow-sm' :
               room.isOccupied ? 'badge-occupied' : 'badge-available'
             }>
-              {room.isDueOut ? 'Due Out' : room.isOccupied ? 'Occupied' : 'Available'}
+              {isOverdue && <AlertCircle className="w-3.5 h-3.5" />}
+              {isOverdue ? 'Not Checked Out' : room.isDueOut ? 'Due Out' : room.isOccupied ? 'Occupied' : 'Available'}
             </span>
             
             {/* Payment Status Badge */}
@@ -79,7 +92,7 @@ export function RoomCard({ room, onClick }: RoomCardProps) {
                 <span>
                   {paymentStatus === 'paid' && 'Paid'}
                   {paymentStatus === 'partial' && `Due: LKR ${amountDue.toLocaleString()}`}
-                  {paymentStatus === 'unpaid' && 'Unpaid'}
+                  {paymentStatus === 'unpaid' && (isOverdue ? `Due: LKR ${amountDue.toLocaleString()}` : 'Unpaid')}
                 </span>
               </div>
             )}
@@ -96,7 +109,22 @@ export function RoomCard({ room, onClick }: RoomCardProps) {
             {room.checkOutTime && (
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-gray-400" />
-                <span className="text-xs text-gray-600">Check-out: {room.checkOutTime}</span>
+                <span className="text-xs text-gray-600">
+                  {isOverdue
+                    ? `Stay ended ${checkOutDay || room.checkOutTime}`
+                    : `Check-out: ${room.checkOutTime}`}
+                </span>
+              </div>
+            )}
+            {/* Unclosed folio notice */}
+            {isOverdue && (
+              <div className="mt-2 flex items-start gap-2 text-xs font-medium text-rose-700">
+                <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span>
+                  Folio never closed
+                  {overdueDays > 0 ? ` - ${overdueDays} day${overdueDays > 1 ? 's' : ''} overdue` : ''}.
+                  {amountDue > 0 ? ` LKR ${amountDue.toLocaleString()} still due.` : ' Balance settled - ready to check out.'}
+                </span>
               </div>
             )}
             {/* Payment Summary */}
@@ -114,6 +142,33 @@ export function RoomCard({ room, onClick }: RoomCardProps) {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Further unclosed folios on this room (one folio is settled at a time) */}
+        {openFolios.length > 0 && (
+          <div className="mb-4 p-3 bg-amber-50/80 rounded-xl border border-amber-200">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertCircle className="w-4 h-4 text-amber-500" />
+              <span className="text-xs font-semibold text-amber-800 uppercase tracking-wide">
+                {openFolios.length} other unclosed folio{openFolios.length > 1 ? 's' : ''}
+              </span>
+            </div>
+            <ul className="space-y-1.5">
+              {openFolios.map(folio => {
+                const folioDue = Math.max(0, folio.totalAmount - folio.paidAmount);
+                return (
+                  <li key={folio.bookingId} className="flex justify-between items-center text-xs text-amber-900">
+                    <span className="truncate pr-2">
+                      {folio.guestName || 'Guest'} · #{folio.bookingId}
+                    </span>
+                    <span className="font-medium whitespace-nowrap">
+                      {folioDue > 0 ? `LKR ${folioDue.toLocaleString()} due` : 'settled'}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         )}
 

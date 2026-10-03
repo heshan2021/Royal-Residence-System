@@ -44,7 +44,7 @@ const RECONCILE_ROOMS = `UPDATE rooms r SET
   ) s
   WHERE s.id = r.id`;
 
-const TEST_NICS = ['CLINETESTA0001', 'CLINETESTB0001', 'CLINETESTC0001', 'CLINETESTX0001'];
+const TEST_NICS = ['CLINETESTA0001', 'CLINETESTB0001', 'CLINETESTC0001', 'CLINETESTX0001', 'CLINETESTH0001'];
 const results = [];
 function check(id, desc, ok, detail) {
   results.push({ id, desc, ok, detail });
@@ -241,7 +241,105 @@ async function roomOn(number, date) {
   check('B5', 'rooms.is_occupied agrees with booking-derived occupancy',
     drifted.length === 0, `drift=[${drifted.map((x) => x.number + '(flag=' + x.is_occupied + ',derived=' + x.derived_occ + ')').join(', ')}]`);
 
-  // ---------------------------------------------------------------- G) accounting
+  // ------------------------------------------- H) an unclosed folio stays visible
+  console.log('\n--- H) overdue folio stays on the dashboard until paid + checked out ---');
+  // The exact production bug: a 1-night stay whose window has already ended is left
+  // `active` (the guest was checked in late / the desk never ran the check-out).
+  // Such a row used to vanish from every later day, so its money was uncollectable.
+  // Seeded with raw SQL because it is a legacy accident - the API path that created
+  // it is exactly what this fix makes visible again.
+  const SLT_MS = 330 * 60 * 1000;
+  const sltDay = (backDays) => new Date(Date.now() + SLT_MS - backDays * 86400000).toISOString().slice(0, 10);
+  const todaySLT = sltDay(0);
+  const yesterdaySLT = sltDay(1);
+  const twoDaysAgoSLT = sltDay(2);
+  // Every booking column stores a UTC instant of a Sri Lankan hotel slot.
+  const utcStamp = (isoWithOffset) =>
+    new Date(isoWithOffset).toISOString().slice(0, 19).replace('T', ' ');
+
+  // Seed on a room that is genuinely free today, so this probe never collides with
+  // a real folio that may already be sitting on the books.
+  const gridToday = await api('GET', `/api/rooms?date=${todaySLT}`);
+  const hFreeRoom = (Array.isArray(gridToday.json) ? gridToday.json : [])
+    .find((x) => !x.isOccupied && x.number !== '301');
+  const hRoom = hFreeRoom ? hFreeRoom.number : null;
+
+  const hGuest = await sql(
+    `INSERT INTO guests (name, phone_number, nic_number)
+     VALUES ('Cline Test Overdue', '0770000007', 'CLINETESTH0001') RETURNING id`);
+  const hRows = await sql(
+    `INSERT INTO bookings (guest_id, room_id, check_in_date, check_out_date, total_price, status)
+     SELECT $1, r.id, $2::timestamp, $3::timestamp, 4500, 'active'
+     FROM rooms r WHERE r.number = $4 RETURNING id`,
+    [hGuest[0].id,
+      utcStamp(`${twoDaysAgoSLT}T14:00:00+05:30`),
+      utcStamp(`${yesterdaySLT}T11:00:00+05:30`),
+      hRoom]);
+  const hBooking = hRows[0] ? hRows[0].id : null;
+  console.log(`        seeded unclosed folio #${hBooking}: room ${hRoom}, ${twoDaysAgoSLT} -> ${yesterdaySLT}, LKR 4500 unpaid`);
+
+  let r101 = await roomOn(hRoom, todaySLT);
+  check('H1', 'rooms?date=today surfaces the unclosed folio as "Not Checked Out"',
+    !!r101 && r101.isOccupied === true && r101.isOverdue === true && r101.bookingId === hBooking,
+    r101 ? `isOccupied=${r101.isOccupied} isOverdue=${r101.isOverdue} bookingId=${r101.bookingId} (folio #${hBooking})` : `room ${hRoom} missing`);
+  check('H2', 'unclosed folio keeps its guest, total, unpaid balance and overdue age',
+    !!r101 && /Cline Test Overdue/.test(r101.guestName || '')
+      && r101.totalAmount === 4500 && r101.paidAmount === 0 && r101.overdueDays === 1,
+    r101 ? `guest=${r101.guestName} total=${r101.totalAmount} paid=${r101.paidAmount} overdueDays=${r101.overdueDays}` : `room ${hRoom} missing`);
+  check('H3', 'the overdue card is not mistaken for a guest departing today',
+    !!r101 && r101.isDueOut === false && Array.isArray(r101.openFolios) && r101.openFolios.length === 0,
+    r101 ? `isDueOut=${r101.isDueOut} openFolios=${JSON.stringify(r101.openFolios)}` : `room ${hRoom} missing`);
+
+  const statsBeforeH = await api('GET', '/api/admin/accounting-stats');
+  const owedBeforeH = statsBeforeH.json && statsBeforeH.json.pendingBalance;
+  check('H4', 'unsettled folio is counted as money still owed',
+    typeof owedBeforeH === 'number' && owedBeforeH >= 4500, `pendingBalance=${owedBeforeH}`);
+
+  s = await api('POST', '/api/rooms/checkout', { roomNumber: hRoom, date: todaySLT });
+  const hOpen = await sql(`SELECT status FROM bookings WHERE id=$1`, [hBooking]);
+  check('H5', 'check-out without payment is refused and the folio stays open (D13)',
+    s.status === 400 && /balance/i.test(s.text) && hOpen[0] && hOpen[0].status === 'active',
+    `status=${s.status} bookingStatus=${hOpen[0] && hOpen[0].status} ${s.text.slice(0, 110)}`);
+
+  r101 = await roomOn(hRoom, todaySLT);
+  check('H6', 'the room is still on the grid after the refused check-out',
+    !!r101 && r101.isOccupied === true && r101.isOverdue === true,
+    r101 ? `isOccupied=${r101.isOccupied} isOverdue=${r101.isOverdue}` : `room ${hRoom} missing`);
+
+  // ------------------------------------------------ H-b) settle the overdue folio
+  console.log('\n--- H-b) settle the overdue folio (aimed at its own bookingId) ---');
+  s = await api('POST', '/api/rooms/checkout', {
+    roomNumber: hRoom, date: todaySLT, bookingId: hBooking, finalPayment: 4500, paymentMethod: 'Cash',
+  });
+  check('H7', 'paying the balance closes the folio -> 200 and reports it was overdue',
+    s.status === 200 && s.json && s.json.wasOverdue === true,
+    `status=${s.status} wasOverdue=${s.json && s.json.wasOverdue} ${s.text.slice(0, 110)}`);
+
+  const hClosed = await sql(
+    `SELECT status, check_out_date::text AS co FROM bookings WHERE id=$1`, [hBooking]);
+  const wantedDeparture = new RegExp(`^${yesterdaySLT} (11:00|05:30)`);
+  check('H8', "departure is stamped with the folio's OWN slot, not the viewed day",
+    hClosed.length === 1 && hClosed[0].status === 'completed'
+      && wantedDeparture.test(hClosed[0].co || ''),
+    `status=${hClosed[0] && hClosed[0].status} check_out=${hClosed[0] && hClosed[0].co} wanted=${yesterdaySLT} 11:00`);
+
+  const hTx = await sql(
+    `SELECT amount::int AS amount, payment_type FROM transactions WHERE booking_id=$1 ORDER BY id`, [hBooking]);
+  check('H9', 'the settlement reaches the ledger as a final_settlement row',
+    hTx.some((t) => t.payment_type === 'final_settlement' && t.amount === 4500),
+    `rows=${JSON.stringify(hTx)}`);
+
+  r101 = await roomOn(hRoom, todaySLT);
+  check('H10', 'the room flips back to Available once the folio is closed',
+    !!r101 && r101.isOccupied === false && r101.isOverdue !== true && !r101.guestName,
+    r101 ? `isOccupied=${r101.isOccupied} isOverdue=${r101.isOverdue} guest=${r101.guestName}` : `room ${hRoom} missing`);
+
+  const statsAfterH = await api('GET', '/api/admin/accounting-stats');
+  check('H11', 'pendingBalance drops by exactly the amount that was collected at the desk',
+    !!statsAfterH.json && statsAfterH.json.pendingBalance === owedBeforeH - 4500,
+    `before=${owedBeforeH} after=${statsAfterH.json && statsAfterH.json.pendingBalance}`);
+
+  // ------------------------------------------------ G) accounting
   console.log('\n--- G) accounting surface ---');
   const tx = await api('GET', '/api/transactions');
   const testTx = (tx.json || []).filter((t) => TEST_NICS.includes(t.guestNic));
