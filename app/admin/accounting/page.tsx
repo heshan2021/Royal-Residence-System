@@ -4,12 +4,14 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { DollarSign, TrendingUp, Calendar, Clock, AlertCircle, BarChart3, CreditCard, Banknote, Plus, PieChart, TrendingDown, Download, FileSpreadsheet } from 'lucide-react';
 import TransactionLedger from '../../../src/modules/receptionist/components/TransactionLedger';
 import AccountingPasswordGate from '../../AccountingPasswordGate';
 import AddExpenseModal from './AddExpenseModal';
 import ExpenseLedger from './ExpenseLedger';
+import PeriodToggle, { type AccountingPeriod } from './PeriodToggle';
+import { sltCurrentMonth, sltCurrentYear, sltMonthLabel } from '../../../lib/hotelDates';
 
 // Types for accounting stats
 interface MonthlyFinancialItem {
@@ -44,14 +46,22 @@ interface AccountingStats {
   revenueGrowth: number;
   currentMonthTotal: number;
   lastMonthTotal: number;
+  // Period scope returned by /api/admin/accounting-stats
+  period: AccountingPeriod;
+  periodLabel: string;
+  rangeStart: string | null;
+  rangeEnd: string | null;
+  collection: number;
+  collectionLabel: string;
 }
 
 // Metric Card Component
-function MetricCard({ title, value, icon: Icon, color = 'slate' }: {
+function MetricCard({ title, value, icon: Icon, color = 'slate', hint }: {
   title: string;
   value: string;
   icon: React.ElementType;
   color?: 'slate' | 'emerald' | 'rose' | 'blue';
+  hint?: string;
 }) {
   const colorClasses = {
     slate: 'bg-slate-50 text-slate-500',
@@ -65,6 +75,9 @@ function MetricCard({ title, value, icon: Icon, color = 'slate' }: {
       <div>
         <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-3">{title}</p>
         <p className="text-4xl font-bold text-slate-800 tabular-nums leading-none">{value}</p>
+        {hint && (
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mt-3">{hint}</p>
+        )}
       </div>
       <div className={`p-4 rounded-2xl ${colorClasses[color]}`}>
         <Icon className="w-8 h-8" />
@@ -111,24 +124,33 @@ function PaymentMethodBar({ cash, bank }: { cash: number; bank: number }) {
 }
 
 // Monthly Financial Chart - Shows Revenue vs Expenses
-function MonthlyFinancialChart({ data }: { data: MonthlyFinancialItem[] }) {
+function MonthlyFinancialChart({ data, year, highlightMonth }: {
+  data: MonthlyFinancialItem[];
+  /** Calendar year the bars belong to (rendered as a badge). */
+  year: number;
+  /** 1-indexed month to emphasise, or null when no single month is in focus. */
+  highlightMonth?: number | null;
+}) {
   const maxValue = Math.max(...data.map(item => Math.max(item.revenue, item.expenses)));
   
   return (
     <div className="bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl p-6 shadow-sm">
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-slate-800">Monthly Financial Trend</h3>
-        <BarChart3 className="w-5 h-5 text-slate-400" />
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-semibold text-slate-500 bg-slate-100 rounded-full px-3 py-1">{year}</span>
+          <BarChart3 className="w-5 h-5 text-slate-400" />
+        </div>
       </div>
       <div className="flex items-end justify-between h-48">
         {data.map((item, index) => {
           const revenueHeight = maxValue > 0 ? (item.revenue / maxValue) * 100 : 0;
           const expensesHeight = maxValue > 0 ? (item.expenses / maxValue) * 100 : 0;
-          const isCurrentMonth = index === new Date().getMonth();
+          const isHighlighted = highlightMonth === index + 1;
           
           return (
-            <div key={item.month} className="flex flex-col items-center flex-1">
-              <div className="text-xs text-slate-500 mb-2">{item.month}</div>
+            <div key={item.month} className={`flex flex-col items-center flex-1 rounded-xl transition-colors duration-300 ${isHighlighted ? 'bg-emerald-50/70' : ''}`}>
+              <div className={`text-xs mb-2 ${isHighlighted ? 'font-bold text-emerald-600' : 'text-slate-500'}`}>{item.month}</div>
               <div className="relative w-12 flex items-end justify-center gap-1">
                 {/* Revenue Bar */}
                 <div className="relative w-5">
@@ -250,6 +272,12 @@ function AccountingOverviewContent() {
   const [stats, setStats] = useState<AccountingStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Stats scope: All Time (default) / Monthly / Annual
+  const [period, setPeriod] = useState<AccountingPeriod>('all');
+  // True while a scope change is refetching (keeps the dashboard on screen)
+  const [isRefetching, setIsRefetching] = useState(false);
+  // Guards against out-of-order responses when the scope changes quickly
+  const requestIdRef = useRef(0);
   const [filterDate, setFilterDate] = useState<string>('');
   const [filterMethod, setFilterMethod] = useState<'all' | 'Cash' | 'Bank'>('all');
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
@@ -264,22 +292,41 @@ function AccountingOverviewContent() {
   const [isDownloading, setIsDownloading] = useState(false);
 
   const fetchStats = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    setIsRefetching(true);
     try {
       setError(null);
-      const response = await fetch('/api/admin/accounting-stats');
+
+      // The scope picker drives both the stats and the CSV export, so the
+      // dashboard and the downloaded report always describe the same period.
+      const params = new URLSearchParams({ period });
+      if (period === 'month') {
+        params.set('month', String(reportMonth));
+        params.set('year', String(reportYear));
+      } else if (period === 'year') {
+        params.set('year', String(reportYear));
+      }
+
+      const response = await fetch(`/api/admin/accounting-stats?${params.toString()}`);
       
       if (!response.ok) {
         throw new Error(`API error: ${response.status}`);
       }
       
-      const data = await response.json();
+      const data: AccountingStats = await response.json();
+      // Ignore a response that a newer request has already superseded.
+      if (requestId !== requestIdRef.current) return;
       setStats(data);
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
       setError(err instanceof Error ? err.message : 'Failed to load accounting stats');
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+        setIsRefetching(false);
+      }
     }
-  }, []);
+  }, [period, reportMonth, reportYear]);
 
   useEffect(() => {
     fetchStats();
@@ -329,6 +376,20 @@ function AccountingOverviewContent() {
 
   // Generate year options (current year and 5 years back)
   const yearOptions = Array.from({ length: 6 }, (_, i) => currentDate.getFullYear() - i);
+
+  // Scope labels. The trend chart always shows one full Sri Lankan calendar
+  // year, and the Monthly Summary follows the same anchor month the API used.
+  const scopeLabel = stats?.periodLabel ?? (
+    period === 'month' ? sltMonthLabel(reportYear, reportMonth)
+      : period === 'year' ? String(reportYear)
+        : 'All time'
+  );
+  const chartYear = period === 'all' ? sltCurrentYear() : reportYear;
+  const anchorYear = period === 'all' ? sltCurrentYear() : reportYear;
+  const anchorMonth = period === 'month' ? reportMonth : sltCurrentMonth();
+  const previousAnchorMonth = anchorMonth === 1 ? 12 : anchorMonth - 1;
+  const previousAnchorYear = anchorMonth === 1 ? anchorYear - 1 : anchorYear;
+  const collectionHint = period === 'all' ? 'Today only' : scopeLabel;
 
   if (loading) {
     return (
@@ -426,41 +487,90 @@ function AccountingOverviewContent() {
             </div>
           )}
 
-          {/* Top Stats Row - Updated with Profit & Loss */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
+          {/* Period Scope Toolbar - All Time / Monthly / Annual */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8">
+            <div className="flex flex-wrap items-center gap-4">
+              <PeriodToggle period={period} onPeriodChange={setPeriod} busy={isRefetching} />
+
+              {/* Scope pickers - shared with the CSV export above so the
+                  dashboard and the downloaded report describe one period */}
+              {(period === 'month' || period === 'year') && (
+                <div className="flex items-center gap-2 bg-white/80 backdrop-blur-xl border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
+                  <Calendar className="w-4 h-4 text-slate-400" />
+                  {period === 'month' && (
+                    <select
+                      value={reportMonth}
+                      onChange={(e) => setReportMonth(parseInt(e.target.value))}
+                      className="px-2 py-1 border border-slate-200 rounded text-sm text-slate-700 bg-white min-w-28"
+                    >
+                      {MONTH_NAMES.map((month, index) => (
+                        <option key={month} value={index + 1}>
+                          {month}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <select
+                    value={reportYear}
+                    onChange={(e) => setReportYear(parseInt(e.target.value))}
+                    className="px-2 py-1 border border-slate-200 rounded text-sm text-slate-700 bg-white min-w-20"
+                  >
+                    {yearOptions.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <p className="text-sm text-slate-500">
+              Showing <span className="font-semibold text-slate-700">{scopeLabel}</span>
+              <span className="text-slate-400"> · Pending Balance is always a live snapshot</span>
+            </p>
+          </div>
+
+          {/* Top Stats Row - scoped by the period toggle */}
+          <div className={`grid grid-cols-1 md:grid-cols-3 gap-8 mb-8 transition-opacity duration-300 ${isRefetching ? 'opacity-60' : 'opacity-100'}`}>
             <MetricCard
               title="Total Revenue"
               value={`LKR ${stats?.totalRevenue.toLocaleString() || '0'}`}
               icon={DollarSign}
               color="blue"
+              hint={scopeLabel}
             />
             <MetricCard
               title="Total Expenses"
               value={`LKR ${stats?.totalExpenses.toLocaleString() || '0'}`}
               icon={TrendingDown}
               color="rose"
+              hint={scopeLabel}
             />
             <MetricCard
               title="Net Profit"
               value={`LKR ${stats?.netProfit.toLocaleString() || '0'}`}
               icon={stats?.netProfit && stats.netProfit >= 0 ? TrendingUp : TrendingDown}
               color={stats?.netProfit && stats.netProfit >= 0 ? 'emerald' : 'rose'}
+              hint={scopeLabel}
             />
           </div>
 
-          {/* Second Row Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+          {/* Second Row Stats - collection follows the period, pending is live */}
+          <div className={`grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 transition-opacity duration-300 ${isRefetching ? 'opacity-60' : 'opacity-100'}`}>
             <MetricCard
-              title="Today's Collection"
-              value={`LKR ${stats?.todayCollection.toLocaleString() || '0'}`}
+              title={stats?.collectionLabel || "Today's Collection"}
+              value={`LKR ${(stats?.collection ?? 0).toLocaleString()}`}
               icon={Calendar}
               color="emerald"
+              hint={collectionHint}
             />
             <MetricCard
               title="Pending Balance"
               value={`LKR ${stats?.pendingBalance.toLocaleString() || '0'}`}
               icon={AlertCircle}
               color="rose"
+              hint="Live · all time"
             />
           </div>
 
@@ -483,7 +593,7 @@ function AccountingOverviewContent() {
                 </div>
                 <div className="space-y-4">
                   <div>
-                    <p className="text-sm text-slate-500 mb-1">Total Sales This Month</p>
+                    <p className="text-sm text-slate-500 mb-1">Sales in {sltMonthLabel(anchorYear, anchorMonth)}</p>
                     <p className="text-2xl font-bold text-slate-800">
                       LKR {stats?.currentMonthTotal.toLocaleString() || '0'}
                     </p>
@@ -494,14 +604,14 @@ function AccountingOverviewContent() {
                       <span className={`text-xl font-bold ${
                         (stats?.revenueGrowth || 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'
                       }`}>
-                        {stats?.revenueGrowth || 0 >= 0 ? '+' : ''}{stats?.revenueGrowth || 0}%
+                        {(stats?.revenueGrowth || 0) >= 0 ? '+' : ''}{stats?.revenueGrowth || 0}%
                       </span>
                       <TrendingUp className={`w-5 h-5 ${
                         (stats?.revenueGrowth || 0) >= 0 ? 'text-emerald-500' : 'text-rose-500 rotate-180'
                       }`} />
                     </div>
                     <p className="text-xs text-slate-400 mt-1">
-                      vs Last Month: LKR {stats?.lastMonthTotal.toLocaleString() || '0'}
+                      vs {sltMonthLabel(previousAnchorYear, previousAnchorMonth)}: LKR {stats?.lastMonthTotal.toLocaleString() || '0'}
                     </p>
                   </div>
                 </div>
@@ -509,7 +619,11 @@ function AccountingOverviewContent() {
 
               {/* Monthly Financial Chart */}
               <div className="lg:col-span-2">
-                <MonthlyFinancialChart data={stats?.monthlyFinancials || []} />
+                <MonthlyFinancialChart
+                  data={stats?.monthlyFinancials || []}
+                  year={chartYear}
+                  highlightMonth={period === 'month' ? reportMonth : null}
+                />
               </div>
             </div>
 

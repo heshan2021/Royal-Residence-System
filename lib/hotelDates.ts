@@ -63,6 +63,51 @@ export function sltDayBounds(dateOnly: string): { start: Date; end: Date } {
   };
 }
 
+/**
+ * Inclusive Sri Lanka month bounds for accounting periods, as UTC instants.
+ * `end` is the first instant of the following month (half-open range).
+ */
+export function sltMonthBounds(year: number, month: number): { start: Date; end: Date } {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  return {
+    start: new Date(`${year}-${pad(month)}-01T00:00:00.000+05:30`),
+    end: new Date(`${nextYear}-${pad(nextMonth)}-01T00:00:00.000+05:30`),
+  };
+}
+
+/**
+ * Inclusive Sri Lanka year bounds for accounting periods, as UTC instants.
+ * `end` is 1 January of the following year (half-open range).
+ */
+export function sltYearBounds(year: number): { start: Date; end: Date } {
+  return {
+    start: new Date(`${year}-01-01T00:00:00.000+05:30`),
+    end: new Date(`${year + 1}-01-01T00:00:00.000+05:30`),
+  };
+}
+
+/** Current calendar year in Sri Lanka. */
+export function sltCurrentYear(now: Date = new Date()): number {
+  return Number(sltToday(now).slice(0, 4));
+}
+
+/** Current calendar month (1-12) in Sri Lanka. */
+export function sltCurrentMonth(now: Date = new Date()): number {
+  return Number(sltToday(now).slice(5, 7));
+}
+
+const MONTH_LABELS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/** Human readable month label, e.g. "October 2026". */
+export function sltMonthLabel(year: number, month: number): string {
+  return `${MONTH_LABELS[month - 1]} ${year}`;
+}
+
 /** Whole nights between two hotel instants (never below 1). */
 export function nightsBetween(checkIn: Date, checkOut: Date): number {
   return Math.max(1, Math.round((checkOut.getTime() - checkIn.getTime()) / MS_PER_DAY));

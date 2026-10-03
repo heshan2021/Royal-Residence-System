@@ -5,6 +5,15 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { db, transactions, bookings, expenses } from '../../../src/db';
 import { eq, sql, and, gte, lt } from 'drizzle-orm';
+import {
+  sltCurrentMonth,
+  sltCurrentYear,
+  sltDayBounds,
+  sltMonthBounds,
+  sltMonthLabel,
+  sltToday,
+  sltYearBounds,
+} from '../../../lib/hotelDates';
 
 // Type definitions for API response
 export interface MonthlyFinancialItem {
@@ -39,6 +48,22 @@ export interface AccountingStats {
   revenueGrowth: number;
   currentMonthTotal: number;
   lastMonthTotal: number;
+  // ---- Period scope (All time / Monthly / Annual toggle) ----
+  /** Requested period: 'all' (default) | 'month' | 'year'. */
+  period: 'all' | 'month' | 'year';
+  /** Human readable scope, e.g. "All time", "October 2026", "2026". */
+  periodLabel: string;
+  /** Half-open Sri Lankan range start (ISO), or null for all-time. */
+  rangeStart: string | null;
+  /** Half-open Sri Lankan range end (ISO), or null for all-time. */
+  rangeEnd: string | null;
+  /**
+   * Money taken in for the selected period. For 'all' this is today's
+   * collection, so the default view is unchanged.
+   */
+  collection: number;
+  /** Label for `collection`: "Today's Collection" | "This Month's Collection" | "This Year's Collection". */
+  collectionLabel: string;
 }
 
 // Month names for display
@@ -58,26 +83,85 @@ export default async function handler(
   res.setHeader('Expires', '0');
 
   try {
-    // Get today's date boundaries (Sri Lanka timezone UTC+5:30)
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const todayEnd = new Date(todayStart);
-    todayEnd.setDate(todayEnd.getDate() + 1);
+    // ========================================================================
+    // 0. Period scope
+    //    ?period=all                            -> all-time totals (default)
+    //    ?period=month&month=<1-12>&year=<yyyy> -> that Sri Lankan month
+    //    ?period=year&year=<yyyy>               -> that Sri Lankan year
+    //
+    //    Every bound below is a Sri Lankan day edge converted to a UTC
+    //    instant, because this API may run on a UTC host (Vercel) while the
+    //    business day is Asia/Colombo. Transactions are stored as UTC
+    //    instants of SLT events, so the same predicate used by the monthly
+    //    report applies here.
+    // ========================================================================
+    const rawPeriod = typeof req.query.period === 'string' ? req.query.period.toLowerCase() : 'all';
+    if (rawPeriod !== 'all' && rawPeriod !== 'month' && rawPeriod !== 'year') {
+      return res.status(400).json({ error: "Invalid period parameter (expected 'all', 'month' or 'year')" });
+    }
+    const period = rawPeriod as 'all' | 'month' | 'year';
 
-    // Current year for monthly data
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1; // 1-indexed
+    const parseNumericParam = (raw: unknown, min: number, max: number): number | null | 'invalid' => {
+      if (raw === undefined || raw === '') return null;
+      if (typeof raw !== 'string' || !/^\d+$/.test(raw)) return 'invalid';
+      const parsed = Number(raw);
+      return parsed >= min && parsed <= max ? parsed : 'invalid';
+    };
+
+    const yearParam = parseNumericParam(req.query.year, 2000, 2100);
+    const monthParam = parseNumericParam(req.query.month, 1, 12);
+    if (yearParam === 'invalid' || monthParam === 'invalid') {
+      return res.status(400).json({ error: 'Invalid month or year parameter' });
+    }
+
+    // Anchor is the current Sri Lankan month/year; the caller may override it.
+    const anchorYear = sltCurrentYear();
+    const anchorMonth = sltCurrentMonth();
+    const selectedYear = yearParam ?? anchorYear;
+    const selectedMonth = monthParam ?? anchorMonth;
+
+    // Half-open [start, end) window; null means "no date filter" (all time).
+    const periodBounds: { start: Date; end: Date } | null =
+      period === 'month' ? sltMonthBounds(selectedYear, selectedMonth)
+        : period === 'year' ? sltYearBounds(selectedYear)
+          : null;
+
+    const rangeWhere = {
+      transactions: periodBounds ? and(gte(transactions.createdAt, periodBounds.start), lt(transactions.createdAt, periodBounds.end)) : undefined,
+      expenses: periodBounds ? and(gte(expenses.expenseDate, periodBounds.start), lt(expenses.expenseDate, periodBounds.end)) : undefined,
+    };
+
+    // Today's Sri Lankan business day (never server-local midnight).
+    const todayBounds = sltDayBounds(sltToday());
+    const todayWhere = and(
+      gte(transactions.createdAt, todayBounds.start),
+      lt(transactions.createdAt, todayBounds.end)
+    );
+
+    const periodLabel = period === 'month' ? sltMonthLabel(selectedYear, selectedMonth)
+      : period === 'year' ? String(selectedYear)
+        : 'All time';
+
+    const collectionLabel = period === 'month' ? "This Month's Collection"
+      : period === 'year' ? "This Year's Collection"
+        : "Today's Collection";
+
+    // Current year/month used by the monthly chart and the growth card.
+    // For 'all' these are simply the current Sri Lankan month/year.
+    const currentYear = selectedYear;
+    const currentMonth = selectedMonth;
     const lastMonth = currentMonth === 1 ? 12 : currentMonth - 1;
     const lastMonthYear = currentMonth === 1 ? currentYear - 1 : currentYear;
 
     // ========================================================================
-    // 1. Total Revenue: SUM of all transaction amounts
+    // 1. Total Revenue: SUM of transaction amounts in the selected period
     // ========================================================================
     const totalRevenueResult = await db
       .select({
         total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)::integer`
       })
-      .from(transactions);
+      .from(transactions)
+      .where(rangeWhere.transactions);
     
     const totalRevenue = totalRevenueResult[0]?.total || 0;
 
@@ -89,17 +173,19 @@ export default async function handler(
         total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)::integer`
       })
       .from(transactions)
-      .where(
-        and(
-          gte(transactions.createdAt, todayStart),
-          lt(transactions.createdAt, todayEnd)
-        )
-      );
+      .where(todayWhere);
     
     const todayCollection = todayCollectionResult[0]?.total || 0;
 
+    // Money taken in for the selected period. For 'all' the period is not
+    // filtered, so money-in for "all time" is reported as today's collection
+    // and the default dashboard stays exactly as it was.
+    const collection = periodBounds ? totalRevenue : todayCollection;
+
     // ========================================================================
     // 3. Pending Balance: Active bookings total - paid transactions
+    //    Deliberately NOT period filtered: money still owed is owed now,
+    //    whatever scope the owner is browsing.
     // ========================================================================
     const activeBookingsResult = await db
       .select({
@@ -131,6 +217,7 @@ export default async function handler(
         count: sql<number>`COUNT(*)::integer`
       })
       .from(transactions)
+      .where(rangeWhere.transactions)
       .groupBy(transactions.paymentMethod);
     
     const paymentMethodSplit: PaymentMethodSplit = {
@@ -163,7 +250,8 @@ export default async function handler(
         .select({
           total: sql<number>`COALESCE(SUM(${expenses.amount}), 0)::integer`
         })
-        .from(expenses);
+        .from(expenses)
+        .where(rangeWhere.expenses);
       
       totalExpenses = totalExpensesResult[0]?.total || 0;
 
@@ -173,6 +261,7 @@ export default async function handler(
           total: sql<number>`COALESCE(SUM(${expenses.amount}), 0)::integer`
         })
         .from(expenses)
+        .where(rangeWhere.expenses)
         .groupBy(expenses.category);
 
       expensesByCategoryResult.forEach((row) => {
@@ -285,7 +374,13 @@ export default async function handler(
       expensesByCategory,
       revenueGrowth: Math.round(revenueGrowth * 10) / 10,
       currentMonthTotal,
-      lastMonthTotal
+      lastMonthTotal,
+      period,
+      periodLabel,
+      rangeStart: periodBounds ? periodBounds.start.toISOString() : null,
+      rangeEnd: periodBounds ? periodBounds.end.toISOString() : null,
+      collection,
+      collectionLabel
     });
 
   } catch (error) {
