@@ -8,6 +8,7 @@ import CalendarView from './components/CalendarView';
 import ViewToggle from './components/ViewToggle';
 import AddExpenseModal from '../../../app/admin/accounting/AddExpenseModal';
 import { Room } from '../../../types/room';
+import { sltToday } from '../../../lib/hotelDates';
 
 // Type definitions for initial data (must match app/page.tsx)
 interface Booking {
@@ -38,7 +39,7 @@ interface ReceptionistDashboardProps {
 export default function ReceptionistDashboard({ targetDate, initialData }: ReceptionistDashboardProps) {
   const [view, setView] = useState<'dashboard' | 'calendar'>('dashboard');
   const [selectedDate, setSelectedDate] = useState<string>(
-    targetDate.toISOString().split('T')[0]
+    sltToday(targetDate)
   );
   const [showExpenseModal, setShowExpenseModal] = useState(false);
 

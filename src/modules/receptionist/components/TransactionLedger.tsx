@@ -9,6 +9,7 @@ import { RefreshCw, Receipt, CreditCard, Banknote, AlertCircle } from 'lucide-re
 import { format } from 'date-fns';
 import { getTransactionHistory } from '../lib/repository';
 import { TransactionHistoryItem } from '../../../../types/room';
+import { sltToday } from '../../../../lib/hotelDates';
 
 interface TransactionLedgerProps {
   filterDate?: string;
@@ -47,7 +48,7 @@ export default function TransactionLedger({ filterDate, filterMethod = 'all', va
   const filteredTransactions = transactions.filter((tx) => {
     // Filter by date if provided
     if (filterDate && tx.date) {
-      const txDate = new Date(tx.date).toISOString().split('T')[0];
+      const txDate = sltToday(new Date(tx.date));
       if (txDate !== filterDate) return false;
     }
     
@@ -101,6 +102,8 @@ export default function TransactionLedger({ filterDate, filterMethod = 'all', va
         return 'Advance';
       case 'final_settlement':
         return 'Final Settlement';
+      case 'refund':
+        return 'Refund';
       default:
         return type;
     }
@@ -113,6 +116,8 @@ export default function TransactionLedger({ filterDate, filterMethod = 'all', va
         return 'bg-blue-500/20 text-blue-200 border-blue-400/30';
       case 'final_settlement':
         return 'bg-green-500/20 text-green-200 border-green-400/30';
+      case 'refund':
+        return 'bg-amber-500/20 text-amber-200 border-amber-400/30';
       default:
         return 'bg-gray-500/20 text-gray-200 border-gray-400/30';
     }

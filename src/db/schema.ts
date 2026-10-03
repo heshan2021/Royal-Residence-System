@@ -82,7 +82,7 @@ export const transactions = pgTable('transactions', {
   bookingId: integer('booking_id').notNull().references(() => bookings.id),
   amount: integer('amount').notNull(), // Amount in LKR
   paymentMethod: varchar('payment_method', { length: 20 }).notNull(), // 'Cash' or 'Bank'
-  paymentType: varchar('payment_type', { length: 20 }).notNull(), // 'advance' or 'final_settlement'
+  paymentType: varchar('payment_type', { length: 20 }).notNull(), // 'advance', 'final_settlement' or 'refund'
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -154,7 +154,9 @@ export type NewTransaction = typeof transactions.$inferInsert;
 // Status types
 export type BookingStatus = 'active' | 'completed' | 'cancelled';
 export type PaymentMethod = 'Cash' | 'Bank';
-export type PaymentType = 'advance' | 'final_settlement';
+// 'refund' rows are stored with a NEGATIVE amount (early-departure credit), so
+// that SUM(amount) always equals net revenue for the booking.
+export type PaymentType = 'advance' | 'final_settlement' | 'refund';
 
 // Expense Category Enum
 export const expenseCategoryEnum = pgEnum('expense_category', [

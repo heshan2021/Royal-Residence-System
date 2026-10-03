@@ -8,6 +8,7 @@ export const revalidate = 0;
 import ReceptionistDashboard from '../../src/modules/receptionist/page';
 import { Suspense } from 'react';
 import { Room } from '../../types/room';
+import { sltToday } from '../../lib/hotelDates';
 
 // Type definitions for initial data
 interface Booking {
@@ -47,9 +48,11 @@ async function fetchInitialData(targetDate: Date): Promise<InitialData> {
     baseUrl = 'http://localhost:3000';
   }
   
-  const dateStr = targetDate.toISOString().split('T')[0];
-  const year = targetDate.getFullYear();
-  const month = targetDate.getMonth() + 1; // JavaScript months are 0-indexed
+  // Sri Lankan calendar date for the requested day (server TZ must not matter).
+  const dateStr = sltToday(targetDate);
+  const [dateYear, dateMonth] = dateStr.split('-').map(Number);
+  const year = dateYear;
+  const month = dateMonth;
   
   try {
     // Construct API URLs - use relative URLs if baseUrl is empty (Vercel internal calls)

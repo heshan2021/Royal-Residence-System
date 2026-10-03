@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Users, Wifi, Snowflake, BedDouble, Coffee, Wine, Bath, ChevronRight, Star, MapPin } from 'lucide-react';
 import WhatsAppModal from './components/WhatsAppModal';
+import { sltToday } from '../lib/hotelDates';
 
 const AmenityIcon = ({ type }: { type: string }) => {
   const iconProps = { className: "w-4 h-4 text-[#D4AF37]/80 group-hover:text-[#D4AF37] transition-colors" };
@@ -37,13 +38,14 @@ interface Room {
 }
 
 export default function HomePage() {
-  // Calculate today's date for default check-in
-  const today = new Date().toISOString().split('T')[0];
-  
-  // Calculate tomorrow's date for default check-out
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+  // Defaults are Sri Lankan calendar dates: `toISOString()` would return the
+  // previous day for guests browsing between 00:00 and 05:30 SLT.
+  const today = sltToday();
+
+  // Tomorrow = today + 1 day on the Sri Lankan calendar.
+  const tomorrow = new Date(`${today}T00:00:00+05:30`);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  const tomorrowStr = sltToday(tomorrow);
 
   const [checkIn, setCheckIn] = useState(today);
   const [checkOut, setCheckOut] = useState(tomorrowStr);

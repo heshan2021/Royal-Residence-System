@@ -1,10 +1,17 @@
 // pages/api/book/availability.ts
 // API endpoint for checking room availability with strict overlap logic
 // Implements the "Night Slot" philosophy: 14:00 Check-In / 11:00 Check-Out
+//
+// FIX (B28): the overlap test used `check_out_date > :checkIn`, which SQL never
+// matches for NULL. Long-term guests (NULL check-out) were therefore offered as
+// available. NULL check-outs are now treated as open-ended stays.
+// Slots are also built with the shared Sri Lanka hotel-slot helpers instead of
+// setHours(), so the result no longer depends on the server's timezone.
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { db, rooms, bookings } from '../../../src/db';
-import { and, eq, gt, lt, or, isNull, not, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt, or } from 'drizzle-orm';
+import { hotelSlotInstant, nightsBetween, parseDateOnly } from '../../../lib/hotelDates';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -17,7 +24,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   res.setHeader('Expires', '0');
 
   try {
-    const { checkIn, checkOut, guests } = req.query;
+    const { checkIn, checkOut } = req.query;
 
     // Validate required parameters
     if (!checkIn || !checkOut) {
@@ -26,27 +33,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    // Parse dates and validate format
-    const checkInDate = new Date(checkIn as string);
-    const checkOutDate = new Date(checkOut as string);
-
-    if (isNaN(checkInDate.getTime()) || isNaN(checkOutDate.getTime())) {
-      return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+    const parsedCheckIn = parseDateOnly(checkIn, 'checkIn');
+    if (!parsedCheckIn.ok) {
+      return res.status(400).json({ error: parsedCheckIn.error });
+    }
+    const parsedCheckOut = parseDateOnly(checkOut, 'checkOut');
+    if (!parsedCheckOut.ok) {
+      return res.status(400).json({ error: parsedCheckOut.error });
     }
 
-    // Validate date logic
-    if (checkOutDate <= checkInDate) {
+    // Validate date logic (date-only strings sort chronologically)
+    if (parsedCheckOut.value <= parsedCheckIn.value) {
       return res.status(400).json({ error: 'Check-out date must be after check-in date' });
     }
 
-    // Apply Royal Residence "Night Slot" times:
-    // Check-In: 14:00:00 (2:00 PM) Sri Lanka Time
-    // Check-Out: 11:00:00 (11:00 AM) the following day
-    const checkInWithTime = new Date(checkInDate);
-    checkInWithTime.setHours(14, 0, 0, 0); // 14:00:00
-
-    const checkOutWithTime = new Date(checkOutDate);
-    checkOutWithTime.setHours(11, 0, 0, 0); // 11:00:00
+    // Royal Residence "Night Slot" instants: check-in 14:00 SLT, check-out 11:00 SLT.
+    const checkInSlot = hotelSlotInstant(parsedCheckIn.value, 'check-in');
+    const checkOutSlot = hotelSlotInstant(parsedCheckOut.value, 'check-out');
+    const nights = nightsBetween(checkInSlot, checkOutSlot);
 
     // Get all rooms - use safe approach for columns that might not exist
     const roomData = await db.select({
@@ -59,17 +63,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // For each room, check if it has any overlapping bookings
     const availableRooms = await Promise.all(
       roomData.map(async (room) => {
-        // Check for overlapping bookings
-        const overlappingBookings = await db.select()
+        // Strict overlap logic: newCheckIn < existingCheckOut AND newCheckOut > existingCheckIn.
+        // A NULL check-out means the guest never checked out (long-term stay) and
+        // always overlaps - SQL `NULL > x` is NULL, so it must be matched explicitly.
+        const overlappingBookings = await db.select({ id: bookings.id })
           .from(bookings)
           .where(
             and(
               eq(bookings.roomId, room.id),
               eq(bookings.status, 'active'),
-              // Strict overlap logic: newCheckIn < existingCheckOut AND newCheckOut > existingCheckIn
-              // Use sql template for date comparisons
-              sql`${bookings.checkOutDate} > ${checkInWithTime.toISOString()}::timestamp`,
-              sql`${bookings.checkInDate} < ${checkOutWithTime.toISOString()}::timestamp`
+              lt(bookings.checkInDate, checkOutSlot),
+              or(
+                isNull(bookings.checkOutDate),
+                gt(bookings.checkOutDate, checkInSlot)
+              )
             )
           )
           .limit(1);
@@ -78,7 +85,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const isAvailable = overlappingBookings.length === 0;
 
         // Calculate total price for the stay
-        const nights = Math.ceil((checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24));
         const pricePerNight = room.price ? parseFloat(room.price) : 0;
         const totalPrice = pricePerNight * nights;
 

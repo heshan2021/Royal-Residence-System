@@ -4,6 +4,7 @@ import { X, UserPlus, CreditCard, Search, User } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { PaymentMethod, Guest } from '../../../../types/room';
 import { findGuestByQuery } from '../lib/repository';
+import { sltToday } from '../../../../lib/hotelDates';
 
 interface CheckInModalProps {
   room: string;
@@ -34,7 +35,9 @@ export function CheckInModal({ room, roomPrice, targetDate, onConfirm, onClose }
 
   function calcCheckoutDate(checkInDate: Date, days: number): Date {
     const checkoutDate = new Date(checkInDate);
-    checkoutDate.setDate(checkoutDate.getDate() + days);
+    // UTC arithmetic: the modal's dates are UTC midnights of the SLT calendar
+    // date, so the browser's timezone must not shift the result.
+    checkoutDate.setUTCDate(checkoutDate.getUTCDate() + days);
     return checkoutDate;
   }
 
@@ -42,7 +45,8 @@ export function CheckInModal({ room, roomPrice, targetDate, onConfirm, onClose }
     return date.toLocaleDateString('en-GB', {
       day: '2-digit',
       month: '2-digit',
-      year: 'numeric'
+      year: 'numeric',
+      timeZone: 'Asia/Colombo'
     });
   }
 
@@ -51,8 +55,9 @@ export function CheckInModal({ room, roomPrice, targetDate, onConfirm, onClose }
            ' ' + formatDateForDisplay(date);
   }
 
-  // Initialize form data with targetDate
-  const initialCheckInDate = new Date(targetDate);
+  // Initialize form data with targetDate. Dates are the UTC midnight of the Sri
+  // Lankan calendar date (14:00/11:00 slot times are derived server-side).
+  const initialCheckInDate = new Date(sltToday(targetDate));
   const initialCheckOutDate = calcCheckoutDate(initialCheckInDate, 1);
   
   const [formData, setFormData] = useState({
@@ -346,7 +351,7 @@ export function CheckInModal({ room, roomPrice, targetDate, onConfirm, onClose }
                 <input
                   type="date"
                   name="checkInDate"
-                  value={formData.checkInDate.toISOString().split('T')[0]}
+                  value={sltToday(formData.checkInDate)}
                   onChange={(e) => {
                     const newDate = new Date(e.target.value);
                     if (!isNaN(newDate.getTime())) {

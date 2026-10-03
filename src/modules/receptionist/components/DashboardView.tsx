@@ -9,6 +9,7 @@ import { CheckInModal, CheckInData } from './CheckInModal';
 import { CheckOutModal } from './CheckOutModal';
 import AddExpenseModal from '../../../../app/admin/accounting/AddExpenseModal';
 import { Room } from '../../../../types/room';
+import { sltToday } from '../../../../lib/hotelDates';
 import { 
   getAllRooms, 
   checkInGuest, 
@@ -98,12 +99,22 @@ export default function DashboardView({ targetDate, selectedDate, onDateChange, 
     }
   }, [selectedRoom, loadRooms]);
 
-  const handleCheckOut = useCallback(async (finalPayment?: number, paymentMethod?: 'Cash' | 'Bank') => {
+  const handleCheckOut = useCallback(async (
+    finalPayment?: number,
+    paymentMethod?: 'Cash' | 'Bank',
+    earlyDeparture?: boolean
+  ) => {
     if (!selectedRoom) return;
     try {
-      const updatedRoom = await checkOutGuest(selectedRoom.id, finalPayment, paymentMethod);
+      const updatedRoom = await checkOutGuest(selectedRoom.id, {
+        finalPayment,
+        paymentMethod,
+        // Resolve the booking that covers the day the receptionist is viewing.
+        date: selectedDate ? new Date(selectedDate) : undefined,
+        earlyDeparture,
+      });
       setRooms(prevRooms => prevRooms.map(room => room.id === selectedRoom.id ? updatedRoom : room));
-      const stats = await getRoomStatistics();
+      const stats = await getRoomStatistics(selectedDate ? new Date(selectedDate) : undefined);
       setStatistics(stats);
       setModalType(null);
       setSelectedRoom(null);
@@ -111,7 +122,7 @@ export default function DashboardView({ targetDate, selectedDate, onDateChange, 
       console.error('Failed to check out guest:', error);
       alert(error instanceof Error ? error.message : 'Failed to check out guest. Please try again.');
     }
-  }, [selectedRoom]);
+  }, [selectedRoom, selectedDate]);
 
   if (isLoading) {
     return (
@@ -123,6 +134,9 @@ export default function DashboardView({ targetDate, selectedDate, onDateChange, 
       </div>
     );
   }
+
+  // Sri Lankan calendar date, so the picker does not flip a day between 00:00 and 05:30 SLT.
+  const today = sltToday();
 
   return (
     <>
@@ -146,12 +160,11 @@ export default function DashboardView({ targetDate, selectedDate, onDateChange, 
                   className="px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-slate-900 
                            focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent
                            shadow-sm hover:border-slate-400 transition-colors"
-                  min={new Date().toISOString().split('T')[0]}
+                  min={today}
                 />
-                {selectedDate !== new Date().toISOString().split('T')[0] && (
+                {selectedDate !== today && (
                   <button
                     onClick={() => {
-                      const today = new Date().toISOString().split('T')[0];
                       onDateChange(today);
                       const params = new URLSearchParams(searchParams?.toString() || '');
                       params.delete('date');
@@ -165,13 +178,14 @@ export default function DashboardView({ targetDate, selectedDate, onDateChange, 
                 )}
               </div>
             </div>
-            {selectedDate !== new Date().toISOString().split('T')[0] && (
+            {selectedDate !== today && (
               <div className="text-sm text-amber-700 bg-amber-50 px-4 py-2.5 rounded-lg">
                 <span>
                   Viewing: {new Date(selectedDate).toLocaleDateString('en-US', { 
                     month: 'short', 
                     day: 'numeric', 
-                    year: 'numeric' 
+                    year: 'numeric',
+                    timeZone: 'Asia/Colombo'
                   })}
                 </span>
               </div>

@@ -14,7 +14,7 @@ interface CheckOutModalProps {
   paidAmount?: number;
   isDueOut?: boolean;
   onSwitchToCheckIn?: () => void;
-  onConfirm: (finalPayment?: number, paymentMethod?: PaymentMethod) => void;
+  onConfirm: (finalPayment?: number, paymentMethod?: PaymentMethod, earlyDeparture?: boolean) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -35,11 +35,17 @@ export function CheckOutModal({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Cash');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Early departure: the guest leaves before the booked date. The server re-prices
+  // the folio for the nights actually used and records the difference as a refund.
+  const [isEarlyDeparture, setIsEarlyDeparture] = useState(false);
 
   // Calculate amounts
   const balanceDue = Math.max(0, totalAmount - paidAmount);
   const remainingAfterFinal = balanceDue - finalPayment;
   const isBalanceSettled = remainingAfterFinal <= 0;
+  // When leaving early the folio shrinks (and may already be overpaid), so the
+  // final balance is decided by the server, not by the figures shown here.
+  const isBalanceGateDisabled = isEarlyDeparture;
 
   const handleFinalPaymentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = Math.max(0, Math.min(balanceDue, parseInt(e.target.value) || 0));
@@ -51,8 +57,13 @@ export function CheckOutModal({
     setPaymentMethod(e.target.value as PaymentMethod);
   };
 
+  const handleEarlyDepartureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setIsEarlyDeparture(e.target.checked);
+    setError(null);
+  };
+
   const handleConfirm = async () => {
-    if (balanceDue > 0 && finalPayment === 0) {
+    if (!isEarlyDeparture && balanceDue > 0 && finalPayment === 0) {
       setError('Please enter a payment amount to settle the balance');
       return;
     }
@@ -64,7 +75,11 @@ export function CheckOutModal({
 
     setIsProcessing(true);
     try {
-      await onConfirm(finalPayment > 0 ? finalPayment : undefined, finalPayment > 0 ? paymentMethod : undefined);
+      await onConfirm(
+        finalPayment > 0 ? finalPayment : undefined,
+        finalPayment > 0 ? paymentMethod : undefined,
+        isEarlyDeparture
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to process check-out');
       setIsProcessing(false);
@@ -140,6 +155,25 @@ export function CheckOutModal({
           </div>
         </div>
 
+        {/* Early Departure (re-pricing + refund) */}
+        <div className={`mb-7 p-4 rounded-xl border ${isEarlyDeparture ? 'bg-sky-50 border-sky-200' : 'bg-gray-50 border-gray-200'}`}>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isEarlyDeparture}
+              onChange={handleEarlyDepartureChange}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-gray-800">Guest is checking out early</span>
+              <span className="block text-xs text-gray-600 mt-1">
+                The folio is re-priced for the nights actually stayed. Any overpayment is recorded as
+                a refund; anything still owed stays on the folio so the room can be released for sale.
+              </span>
+            </span>
+          </label>
+        </div>
+
         {/* Final Payment Section (only if balance due) */}
         {balanceDue > 0 && (
           <div className="space-y-4 mb-7 p-4 bg-amber-50 border border-amber-200 rounded-xl">
@@ -204,7 +238,9 @@ export function CheckOutModal({
                   </div>
                   {remainingAfterFinal > 0 && (
                     <p className="text-xs text-amber-600 mt-1">
-                      Note: Check-out will not be allowed with outstanding balance
+                      {isEarlyDeparture
+                        ? 'Early departure: the folio is re-priced and any shortfall is carried on the folio'
+                        : 'Note: Check-out will not be allowed with outstanding balance'}
                     </p>
                   )}
                 </div>
@@ -232,9 +268,9 @@ export function CheckOutModal({
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={isProcessing || (balanceDue > 0 && !isBalanceSettled)}
+            disabled={isProcessing || (!isBalanceGateDisabled && balanceDue > 0 && !isBalanceSettled)}
             className={`flex-1 flex items-center justify-center gap-2 ${
-              balanceDue > 0 && !isBalanceSettled
+              !isBalanceGateDisabled && balanceDue > 0 && !isBalanceSettled
                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 : 'btn-danger'
             }`}
@@ -247,7 +283,7 @@ export function CheckOutModal({
             ) : (
               <>
                 <LogOut size={18} />
-                {balanceDue > 0 ? 'Pay & Check Out' : 'Check Out'}
+                {isEarlyDeparture ? 'Check Out Early' : balanceDue > 0 ? 'Pay & Check Out' : 'Check Out'}
               </>
             )}
           </button>

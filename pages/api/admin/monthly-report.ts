@@ -5,6 +5,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { db, transactions, bookings, guests, rooms, expenses } from '../../../src/db';
 import { eq, sql, and, gte, lt, desc } from 'drizzle-orm';
+import { sltToday } from '../../../lib/hotelDates';
 
 // Month names for display
 const MONTH_NAMES = [
@@ -54,9 +55,14 @@ export default async function handler(
       return res.status(400).json({ error: 'Invalid month or year parameter' });
     }
 
-    // Calculate date range for the selected month
-    const startDate = new Date(selectedYear, selectedMonth - 1, 1);
-    const endDate = new Date(selectedYear, selectedMonth, 1);
+    // Calculate date range for the selected month.
+    // Bounds are Sri Lankan day edges so a UTC-hosted server does not shift the
+    // accounting month (transactions are stored as UTC instants of SLT events).
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const nextMonthYear = selectedMonth === 12 ? selectedYear + 1 : selectedYear;
+    const nextMonth = selectedMonth === 12 ? 1 : selectedMonth + 1;
+    const startDate = new Date(`${selectedYear}-${pad(selectedMonth)}-01T00:00:00+05:30`);
+    const endDate = new Date(`${nextMonthYear}-${pad(nextMonth)}-01T00:00:00+05:30`);
     
     const monthName = MONTH_NAMES[selectedMonth - 1];
     const reportPeriod = `${monthName} ${selectedYear}`;
@@ -109,7 +115,7 @@ export default async function handler(
         .orderBy(desc(expenses.expenseDate));
 
       expenseResults = expenseData.map(exp => ({
-        date: exp.expenseDate?.toISOString().split('T')[0] || '',
+        date: exp.expenseDate ? sltToday(exp.expenseDate) : '',
         category: exp.category,
         description: exp.description,
         amount: exp.amount,
@@ -150,14 +156,19 @@ export default async function handler(
       if (amount < lowestPayment) lowestPayment = amount;
 
       return {
-        date: tx.date?.toISOString().split('T')[0] || '',
+        date: tx.date ? sltToday(tx.date) : '',
         transactionId: tx.transactionId,
         guestName: tx.guestName,
         guestNic: tx.guestNic,
         roomNumber: tx.roomNumber,
         amount,
         paymentMethod: tx.method,
-        paymentType: tx.type === 'advance' ? 'Advance Payment' : 'Final Settlement',
+        paymentType:
+          tx.type === 'advance'
+            ? 'Advance Payment'
+            : tx.type === 'refund'
+              ? 'Refund (early departure)'
+              : 'Final Settlement',
       };
     });
 

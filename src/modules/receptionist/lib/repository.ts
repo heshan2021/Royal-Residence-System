@@ -5,6 +5,9 @@
 
 import { Room as UIRoom, PaymentMethod, Guest as UIGuest, TransactionHistoryItem } from '../../../../types/room';
 import { CheckInData } from '../components/CheckInModal';
+// Pure date helpers (safe in both browser and server bundles): the hotel day is
+// always the Sri Lanka calendar day, never the UTC day of the JS Date.
+import { sltToday } from '../../../../lib/hotelDates';
 
 // ============================================================================
 // ROOM MANAGEMENT - Using Database via API
@@ -18,7 +21,7 @@ import { CheckInData } from '../components/CheckInModal';
 export async function getAllRooms(targetDate?: Date): Promise<UIRoom[]> {
   try {
     const url = targetDate 
-      ? `/api/rooms?date=${targetDate.toISOString().split('T')[0]}`
+      ? `/api/rooms?date=${sltToday(targetDate)}`
       : '/api/rooms';
     
     const response = await fetch(url, { cache: 'no-store' });
@@ -94,9 +97,11 @@ export async function checkInGuest(roomId: string, checkInData: CheckInData): Pr
   const totalAmount = roomPrice * (checkInData.days || 1);
   
   try {
-    // Format dates as YYYY-MM-DD (date-only) for API to add standardized hotel times
-    const checkInDateStr = checkInData.checkInDate.toISOString().split('T')[0];
-    const checkOutDateStr = checkInData.checkOutDate.toISOString().split('T')[0];
+    // Send the raw instants: the API converts each instant to its **Sri Lanka**
+    // calendar day and applies the standard hotel check-in/check-out slots.
+    // Slicing with toISOString() would shift local-midnight dates back one day.
+    const checkInDateStr = checkInData.checkInDate.toISOString();
+    const checkOutDateStr = checkInData.checkOutDate.toISOString();
     
     const response = await fetch('/api/rooms/checkin', {
       method: 'POST',
@@ -110,7 +115,8 @@ export async function checkInGuest(roomId: string, checkInData: CheckInData): Pr
         nicNumber: checkInData.nicNumber,
         checkInDate: checkInDateStr,
         checkOutDate: checkOutDateStr,
-        totalAmount,
+        // totalAmount is intentionally NOT sent: the server is the pricing
+        // authority (room.price x nights) and echoes the authoritative total.
         advancePayment: checkInData.advancePayment,
         paymentMethod: checkInData.paymentMethod,
       }),
@@ -125,6 +131,7 @@ export async function checkInGuest(roomId: string, checkInData: CheckInData): Pr
     }
     
     const result = await response.json();
+    const serverTotal = typeof result?.totalAmount === 'number' ? result.totalAmount : totalAmount;
     
     // Return the updated room in UI format
     return {
@@ -136,8 +143,8 @@ export async function checkInGuest(roomId: string, checkInData: CheckInData): Pr
       guestName: checkInData.guestName,
       phoneNumber: checkInData.phoneNumber,
       nicNumber: checkInData.nicNumber,
-      checkOutTime: checkInData.checkOutDate.toISOString(),
-      totalAmount,
+      checkOutTime: result?.checkOutTime || checkInData.checkOutDate.toISOString(),
+      totalAmount: serverTotal,
       paidAmount: checkInData.advancePayment || 0,
       paymentMethod: checkInData.advancePayment ? checkInData.paymentMethod : undefined,
     };
@@ -151,34 +158,35 @@ export async function checkInGuest(roomId: string, checkInData: CheckInData): Pr
  * Check out a guest from a room
  * Records final payment, updates booking status, clears room
  * @param roomId - Room ID
- * @param finalPayment - Optional final payment amount
- * @param paymentMethod - Optional payment method for final payment
+ * @param options.date - The hotel day being viewed/checked out (defaults to today in Sri Lanka).
+ *                       The server resolves the booking that covers this day.
+ * @param options.finalPayment - Optional final payment amount
+ * @param options.paymentMethod - Optional payment method for final payment
+ * @param options.earlyDeparture - True when the guest leaves before the booked check-out date;
+ *                                 the folio is re-priced and the difference is refunded.
  * @returns Promise<UIRoom> - Updated room object
  */
 export async function checkOutGuest(
   roomId: string, 
-  finalPayment?: number, 
-  paymentMethod?: PaymentMethod
+  options: {
+    finalPayment?: number;
+    paymentMethod?: PaymentMethod;
+    date?: Date;
+    earlyDeparture?: boolean;
+  } = {}
 ): Promise<UIRoom> {
+  const { finalPayment, paymentMethod, date, earlyDeparture } = options;
   // Extract room number from ID
   const roomNumber = roomId.replace('room-', '');
   
-  // Get current room to verify balance
+  // Get current room for its price/amenities when rebuilding the UI room. The
+  // balance rule is enforced server-side (it is the only place that knows the
+  // authoritative, possibly re-priced, total after an early departure).
   const rooms = await getAllRooms();
   const room = rooms.find(r => r.id === roomId);
   
   if (!room) {
     throw new Error(`Room ${roomNumber} not found`);
-  }
-  
-  // Calculate if balance will be settled
-  const currentPaid = room.paidAmount || 0;
-  const totalAmount = room.totalAmount || 0;
-  const newPaidAmount = currentPaid + (finalPayment || 0);
-  
-  if (newPaidAmount < totalAmount) {
-    const remaining = totalAmount - newPaidAmount;
-    throw new Error(`Cannot check out with outstanding balance of LKR ${remaining.toLocaleString()}`);
   }
   
   try {
@@ -191,6 +199,9 @@ export async function checkOutGuest(
         roomNumber,
         finalPayment,
         paymentMethod,
+        // The hotel day the receptionist is looking at, in Sri Lanka time.
+        date: date ? sltToday(date) : undefined,
+        earlyDeparture: earlyDeparture === true,
       }),
     });
     
