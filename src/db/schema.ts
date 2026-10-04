@@ -73,6 +73,14 @@ export const bookings = pgTable('bookings', {
   // `totalPrice + discountAmount`.
   totalPrice: integer('total_price').notNull(),
   status: varchar('status', { length: 20 }).notNull().default('active'),
+  // ---- Reservation state -------------------------------------------------
+  // Stamped the moment the guest physically arrives and is checked in.
+  // An `active` booking whose `checkedInAt` is still NULL is a RESERVATION:
+  // the room is sold and must not be offered again, but nobody is in it yet.
+  // Every query that means "a guest is in this room" (occupancy cache, the
+  // dashboard's Occupied card) must therefore also require
+  // `checkedInAt IS NOT NULL` - see lib/roomState.ts and pages/api/rooms.ts.
+  checkedInAt: timestamp('checked_in_at'),
   // ---- Concession granted when the folio was settled -------------------
   // Given for a stated reason (student, no cheaper room available, repeating
   // customer, ...). A discount can only exist on a folio that was settled at

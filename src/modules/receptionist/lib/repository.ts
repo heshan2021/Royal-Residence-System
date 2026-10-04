@@ -3,11 +3,11 @@
 // This file contains all database interactions via API routes
 // UI components should only call these functions
 
-import { Room as UIRoom, PaymentMethod, Guest as UIGuest, TransactionHistoryItem, CheckOutSubmission } from '../../../../types/room';
+import { Room as UIRoom, PaymentMethod, Guest as UIGuest, TransactionHistoryItem, CheckOutSubmission, OverlapConflict, ShortenedFolio, ReservationSubmission } from '../../../../types/room';
 import { CheckInData } from '../components/CheckInModal';
 // Pure date helpers (safe in both browser and server bundles): the hotel day is
 // always the Sri Lanka calendar day, never the UTC day of the JS Date.
-import { sltToday } from '../../../../lib/hotelDates';
+import { nightsBetween, sltToday } from '../../../../lib/hotelDates';
 
 // ============================================================================
 // ROOM MANAGEMENT - Using Database via API
@@ -79,22 +79,66 @@ export function getPaymentStatus(room: UIRoom): 'paid' | 'partial' | 'unpaid' | 
   return 'unpaid';
 }
 
+/** Raised when the room is still held by somebody else. `overlap` is the API's
+ *  own description of the clash, including whether the desk may end that stay
+ *  early - the UI must never decide that for itself. */
+export class RoomOverlapError extends Error {
+  readonly overlap: OverlapConflict | null;
+
+  constructor(message: string, overlap: OverlapConflict | null) {
+    super(message);
+    this.name = 'RoomOverlapError';
+    this.overlap = overlap;
+  }
+}
+
+/** What a successful check-in or reservation returns to the dashboard. */
+export interface BookingResult {
+  room: UIRoom;
+  reserved: boolean;
+  /** Set only when a confirmed overlap ended the incumbent's stay early. */
+  overlapAcknowledged?: ShortenedFolio;
+}
+
+export interface CheckInOptions {
+  /** Hold the room instead of moving the guest in: they have not arrived yet. */
+  reserve?: boolean;
+  /** Confirmed early departure of this folio, freeing the room from today on. */
+  acknowledgeOverlapFor?: number;
+}
+
 /**
- * Check in a guest to a room
+ * Check in a guest to a room (they are standing at the desk), or - with
+ * `options.reserve` - hold the room for a guest who has not arrived yet.
  * Creates booking, records advance payment, updates room status
  * @param roomId - Room ID (format: 'room-302')
  * @param checkInData - Check-in data from form
- * @returns Promise<UIRoom> - Updated room object
+ * @param options.acknowledgeOverlapFor - Only when the desk has confirmed that the
+ *                    guest in the room is leaving today: that stay is cut to
+ *                    today's check-out slot, re-priced and over-paid money refunded.
+ * @returns Promise<BookingResult> - Saved room plus any acknowledged overlap
  */
-export async function checkInGuest(roomId: string, checkInData: CheckInData): Promise<UIRoom> {
+export async function checkInGuest(
+  roomId: string,
+  checkInData: CheckInData,
+  options: CheckInOptions = {}
+): Promise<BookingResult> {
   // Extract room number from ID (e.g., 'room-302' -> '302')
   const roomNumber = roomId.replace('room-', '');
   
-  // Calculate total amount based on room price and days
+  // Local fallback only: the API prices the stay and echoes the total.
   const rooms = await getAllRooms();
   const room = rooms.find(r => r.id === roomId);
   const roomPrice = room && typeof room.price === 'number' ? room.price : 0;
   const totalAmount = roomPrice * (checkInData.days || 1);
+  // A reservation holds the room without recording an arrival (Phase 2). The form
+  // flags it on the submission itself; `options.reserve` lets callers that have no
+  // submission (e.g. reserveRoom) ask for the same thing.
+  const reserve = options.reserve === true || checkInData.reserveOnly === true;
+  // Confirmed end to the incumbent's stay: an explicit option wins, otherwise the
+  // form's own acknowledgement - which it only ever sets after the desk confirmed
+  // the early departure.
+  const acknowledgeOverlapFor = options.acknowledgeOverlapFor ?? checkInData.acknowledgeOverlapFor;
   
   try {
     // Send the raw instants: the API converts each instant to its **Sri Lanka**
@@ -119,6 +163,15 @@ export async function checkInGuest(roomId: string, checkInData: CheckInData): Pr
         // authority (room.price x nights) and echoes the authoritative total.
         advancePayment: checkInData.advancePayment,
         paymentMethod: checkInData.paymentMethod,
+        // A reservation: the room is sold, but nobody has moved in yet.
+        reserve,
+        // Confirmed end to the incumbent's stay (they are leaving today).
+        overlapAcknowledgement: acknowledgeOverlapFor
+          ? {
+              incumbentBookingId: acknowledgeOverlapFor,
+              reason: 'Early departure confirmed at the desk',
+            }
+          : undefined,
       }),
     });
     
@@ -126,33 +179,108 @@ export async function checkInGuest(roomId: string, checkInData: CheckInData): Pr
       const errorData = await response.json().catch(() => ({}));
       // The API now returns detailed error messages with specific booked dates
       const errorMessage = errorData.error || `Check-in failed: ${response.status}`;
-      // Include details if available, but the main error message should be sufficient
-      throw new Error(errorMessage);
+      const details =
+        typeof errorData.details === 'string' && errorData.details ? ` - ${errorData.details}` : '';
+
+      // A clash carries the conflict itself, so the form can offer the
+      // acknowledgement when - and only when - the API says it is allowed.
+      if (errorData.overlap) {
+        throw new RoomOverlapError(`${errorMessage}${details}`, errorData.overlap as OverlapConflict);
+      }
+      throw new Error(`${errorMessage}${details}`);
     }
     
     const result = await response.json();
     const serverTotal = typeof result?.totalAmount === 'number' ? result.totalAmount : totalAmount;
     
-    // Return the updated room in UI format
+    // Return the updated room in UI format, plus whatever the desk must be told
+    // about a confirmed overlap (the re-priced stay and any refund owed).
     return {
-      id: roomId,
-      number: roomNumber,
-      price: roomPrice,
-      amenities: room?.amenities || [],
-      isOccupied: true,
-      guestName: checkInData.guestName,
-      phoneNumber: checkInData.phoneNumber,
-      nicNumber: checkInData.nicNumber,
-      checkOutTime: result?.checkOutTime || checkInData.checkOutDate.toISOString(),
-      totalAmount: serverTotal,
-      paidAmount: checkInData.advancePayment || 0,
-      paymentMethod: checkInData.advancePayment ? checkInData.paymentMethod : undefined,
+      reserved: result?.reserved === true,
+      overlapAcknowledged: result?.overlapAcknowledged as ShortenedFolio | undefined,
+      room: {
+        id: roomId,
+        number: roomNumber,
+        price: roomPrice,
+        amenities: room?.amenities || [],
+        isOccupied: !reserve,
+        isReserved: reserve,
+        guestName: checkInData.guestName,
+        phoneNumber: checkInData.phoneNumber,
+        nicNumber: checkInData.nicNumber,
+        checkOutTime: result?.checkOutTime || checkInData.checkOutDate.toISOString(),
+        totalAmount: serverTotal,
+        paidAmount: checkInData.advancePayment || 0,
+        paymentMethod: checkInData.advancePayment ? checkInData.paymentMethod : undefined,
+      },
     };
   } catch (error) {
     console.error('Check-in error:', error);
     throw error;
   }
 }
+
+/**
+ * Hold a room for a guest who has not arrived yet. The room is sold - it can no
+ * longer be given to anybody else - but it stays empty: no arrival is recorded,
+ * so the dashboard shows it as RESERVED rather than Occupied.
+ * @param roomId - Room ID (format: 'room-302')
+ * @param submission - Reservation data from the form
+ * @param options.acknowledgeOverlapFor - See checkInGuest: only used when the desk
+ *                    has confirmed that the guest in the room leaves today.
+ * @returns Promise<BookingResult> - Saved room plus any acknowledged overlap
+ */
+export async function reserveRoom(
+  roomId: string,
+  submission: ReservationSubmission,
+  options: CheckInOptions = {}
+): Promise<BookingResult> {
+  // Same writer, same endpoint, same overlap rule - only the arrival is skipped.
+  return checkInGuest(
+    roomId,
+    {
+      guestName: submission.guestName,
+      phoneNumber: submission.phoneNumber,
+      nicNumber: submission.nicNumber,
+      checkInDate: submission.checkInDate,
+      checkOutDate: submission.checkOutDate,
+      // Only feeds the local total fallback: the API prices the stay.
+      days: nightsBetween(submission.checkInDate, submission.checkOutDate),
+      adults: 1,
+      kids: 0,
+      advancePayment: submission.advancePayment,
+      paymentMethod: submission.paymentMethod,
+    },
+    { reserve: true, ...options }
+  );
+}
+
+/**
+ * Check a RESERVED guest in, once they actually arrive. Only the arrival is
+ * recorded: the stay window and its money were fixed when the room was held, so
+ * the folio is settled at check-out exactly like any other.
+ * @param bookingId - The reservation being moved in (room.reserved.bookingId)
+ * @returns Promise<string> - A message naming the guest and room that were updated
+ */
+export async function checkInReservation(bookingId: number): Promise<string> {
+  const response = await fetch(`/api/bookings/${bookingId}/checkin`, { method: 'POST' });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    // Keep the server's own reason (e.g. the room is still held by somebody
+    // else): the modal shows it verbatim to the receptionist.
+    const errorMessage = errorData.error || `Check-in failed: ${response.status}`;
+    const details =
+      typeof errorData.details === 'string' && errorData.details ? ` - ${errorData.details}` : '';
+    throw new Error(`${errorMessage}${details}`);
+  }
+
+  const result = await response.json();
+  return typeof result?.message === 'string'
+    ? result.message
+    : `${result?.guestName || 'Guest'} checked in`;
+}
+
 
 /**
  * Check out a guest from a room
@@ -286,16 +414,18 @@ export async function recordPayment(roomId: string, amount: number, method: Paym
 /**
  * Get room statistics
  * @param targetDate - Optional date to check room occupancy for (defaults to current date)
- * @returns Promise<{ total: number; occupied: number; available: number }>
+ * @returns Promise<{ total: number; occupied: number; available: number; reserved: number }>
  */
-export async function getRoomStatistics(targetDate?: Date): Promise<{ total: number; occupied: number; available: number }> {
+export async function getRoomStatistics(targetDate?: Date): Promise<{ total: number; occupied: number; available: number; reserved: number }> {
   const rooms = await getAllRooms(targetDate);
   
   const occupied = rooms.filter(r => r.isOccupied).length;
+  // A reserved room is sold, so it must never be offered as available.
+  const reserved = rooms.filter(r => r.isReserved).length;
   const total = rooms.length;
-  const available = total - occupied;
+  const available = total - occupied - reserved;
   
-  return { total, occupied, available };
+  return { total, occupied, available, reserved };
 }
 
 // ============================================================================

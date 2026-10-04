@@ -57,6 +57,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       id: number;
       guestId: number;
       totalPrice: number;
+      checkInDate: Date;
       checkOutDate: Date | null;
     }) => {
       // Payments on a folio are always summed from the ledger.
@@ -82,6 +83,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ? daysBetweenDays(sltToday(checkOutDate), viewDateOnly)
           : 0,
         checkOutTime: checkOutDate ? checkOutDate.toISOString() : null,
+        // The booked window, as the reservation card needs it.
+        checkInTime: booking.checkInDate.toISOString(),
+        nights: checkOutDate
+          ? Math.max(1, daysBetweenDays(sltToday(booking.checkInDate), sltToday(checkOutDate)))
+          : 0,
       };
     };
 
@@ -117,18 +123,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           orderBy: (bookings, { asc }) => [asc(bookings.checkInDate)],
         });
 
-        // Find if we have a departing guest and/or a staying guest
-        const departingBooking = activeBookingsOnDate.find(b => b.checkOutDate && b.checkOutDate <= targetDateEnd);
-        const stayingBooking = activeBookingsOnDate.find(b => !b.checkOutDate || b.checkOutDate > targetDateEnd);
+        // A booking only occupies the room once its guest has arrived: an
+        // `active` booking whose `checkedInAt` is still NULL is a RESERVATION -
+        // sold for that night, but with nobody in the room yet.
+        const arrivingBookings = activeBookingsOnDate.filter(b => b.checkedInAt);
+        const reservationBookings = activeBookingsOnDate.filter(b => !b.checkedInAt);
 
-        // Prioritize departing booking so the receptionist can process their checkout folio
+        // Find if we have a departing guest and/or a staying guest
+        const departingBooking = arrivingBookings.find(b => b.checkOutDate && b.checkOutDate <= targetDateEnd);
+        const stayingBooking = arrivingBookings.find(b => !b.checkOutDate || b.checkOutDate > targetDateEnd);
+
+        // The reservation covering the day being viewed. A no-show for a day
+        // that already passed is deliberately not listed here: it still owes
+        // money, so it surfaces as an unclosed folio instead.
+        const reservationOnDate = reservationBookings.find(
+          b => b.checkOutDate === null || b.checkOutDate > targetDateStart
+        ) || null;
+
+        // Prioritize departing booking so the receptionist can process their
+        // checkout folio, then the arriving reservation, then the oldest
+        // unclosed folio.
         let activeBookingOnDate = departingBooking || stayingBooking;
 
-        if (!activeBookingOnDate && unclosedBookings.length > 0) {
-          activeBookingOnDate = unclosedBookings[0];
+        if (!activeBookingOnDate) {
+          activeBookingOnDate = reservationOnDate || unclosedBookings[0];
         }
 
-        const isOverdue = !!activeBookingOnDate?.checkOutDate
+        // A reserved room is sold but empty, so it must never read as "Occupied".
+        const isReserved = !!activeBookingOnDate && activeBookingOnDate === reservationOnDate;
+
+        const isOverdue = !isReserved
+          && !!activeBookingOnDate
+          && !!activeBookingOnDate.checkOutDate
           && activeBookingOnDate.checkOutDate < targetDateStart;
 
         const summary = activeBookingOnDate
@@ -151,12 +177,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           });
         }
 
+        // Further reservations covering the viewed day. Only one is shown as the
+        // room's own state: while a guest is still in the room, that guest owns
+        // the card and the arriving reservation is listed underneath it.
+        const reservationsOnDay = [];
+        for (const reservation of reservationBookings) {
+          if (summary && reservation.id === summary.bookingId) continue;
+          const folio = await folioSummary(reservation);
+          reservationsOnDay.push({
+            bookingId: folio.bookingId,
+            guestName: folio.guestName ?? null,
+            checkInDate: folio.checkInTime,
+            checkOutDate: folio.checkOutTime,
+            nights: folio.nights,
+            totalAmount: folio.totalAmount,
+            paidAmount: folio.paidAmount,
+          });
+        }
+
         return {
           id: `room-${room.number}`,
           number: room.number,
           price: room.price ? parseFloat(room.price) : null,
           amenities: room.amenities || [],
-          isOccupied: !!summary,
+          isOccupied: !!summary && !isReserved,
+          isReserved,
+          reserved: isReserved && summary
+            ? {
+                bookingId: summary.bookingId,
+                guestName: summary.guestName ?? null,
+                checkInDate: summary.checkInTime,
+                checkOutDate: summary.checkOutTime,
+                nights: summary.nights,
+                totalAmount: summary.totalAmount,
+                paidAmount: summary.paidAmount,
+              }
+            : undefined,
+          reservationsOnDay,
           isDueOut: !!departingBooking,
           isOverdue,
           overdueDays: isOverdue && summary ? summary.overdueDays : undefined,

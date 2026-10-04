@@ -29,6 +29,13 @@
       "when": 1791058088798,
       "tag": "0003_folio_discounts",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791061561588,
+      "tag": "0004_add_checked_in_at",
+      "breakpoints": true
     }
   ]
 }

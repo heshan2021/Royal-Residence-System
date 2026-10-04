@@ -23,6 +23,7 @@ interface Statistics {
   total: number;
   occupied: number;
   available: number;
+  reserved: number;
 }
 
 export interface InitialData {

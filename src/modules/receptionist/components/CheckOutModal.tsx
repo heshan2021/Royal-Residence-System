@@ -507,13 +507,24 @@ export function CheckOutModal({
           </button>
         </div>
 
-        {/* Section B: Afternoon Availability (Only for Due Out) */}
-        {isDueOut && onSwitchToCheckIn && (
+        {/* Section B: the second half of the day is re-sellable.
+            A due-out guest frees the room at 11:00 today; an UNCLOSED folio
+            ("Not Checked Out") is still bookable for this afternoon as well -
+            the guest is leaving, the money is collected from this same card.
+            Gating this on `isDueOut` alone hid the only door to the booking
+            form for every overdue folio, so the room could not be re-sold. */}
+        {(isDueOut || isOverdue) && onSwitchToCheckIn && (
           <div className="mt-8 pt-6 border-t border-gray-200">
             <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div>
-                <h3 className="text-sm font-semibold text-emerald-800 uppercase tracking-wide mb-1">Afternoon Availability</h3>
-                <p className="text-sm text-emerald-600">Room is available for a new check-in today.</p>
+                <h3 className="text-sm font-semibold text-emerald-800 uppercase tracking-wide mb-1">
+                  {isDueOut ? 'Afternoon Availability' : 'Still Bookable Today'}
+                </h3>
+                <p className="text-sm text-emerald-600">
+                  {isDueOut
+                    ? 'Room is available for a new check-in today.'
+                    : 'The unclosed folio keeps this room on the board. The arriving guest can still be booked for today - this folio stays open until it is settled.'}
+                </p>
               </div>
               <button
                 type="button"

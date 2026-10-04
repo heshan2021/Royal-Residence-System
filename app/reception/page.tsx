@@ -23,6 +23,7 @@ interface Statistics {
   total: number;
   occupied: number;
   available: number;
+  reserved: number;
 }
 
 export interface InitialData {
@@ -86,12 +87,14 @@ async function fetchInitialData(targetDate: Date): Promise<InitialData> {
       console.error('Failed to fetch monthly bookings:', bookingsResponse.status);
     }
     
-    // Calculate statistics from rooms data
+    // Calculate statistics from rooms data. A reserved room is sold but empty, so
+    // it counts as neither occupied nor available.
     const occupied = rooms.filter(r => r.isOccupied).length;
+    const reserved = rooms.filter(r => r.isReserved).length;
     const total = rooms.length;
-    const available = total - occupied;
-    
-    const statistics: Statistics = { total, occupied, available };
+    const available = total - occupied - reserved;
+
+    const statistics: Statistics = { total, occupied, available, reserved };
     
     return { rooms, statistics, monthlyBookings };
   } catch (error) {
@@ -99,7 +102,7 @@ async function fetchInitialData(targetDate: Date): Promise<InitialData> {
     // Return empty data on error - client will handle loading states
     return {
       rooms: [],
-      statistics: { total: 0, occupied: 0, available: 0 },
+      statistics: { total: 0, occupied: 0, available: 0, reserved: 0 },
       monthlyBookings: []
     };
   }

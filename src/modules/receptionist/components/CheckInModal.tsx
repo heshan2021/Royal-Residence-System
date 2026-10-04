@@ -1,10 +1,10 @@
 'use client';
 
-import { X, UserPlus, CreditCard, Search, User } from 'lucide-react';
+import { X, UserPlus, CreditCard, Search, User, AlertTriangle, KeyRound } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
-import { PaymentMethod, Guest } from '../../../../types/room';
+import { PaymentMethod, Guest, OverlapConflict } from '../../../../types/room';
 import { findGuestByQuery } from '../lib/repository';
-import { sltToday } from '../../../../lib/hotelDates';
+import { formatHotelDate, sltToday } from '../../../../lib/hotelDates';
 
 interface CheckInModalProps {
   room: string;
@@ -12,6 +12,12 @@ interface CheckInModalProps {
   targetDate: Date;
   onConfirm: (data: CheckInData) => void;
   onClose: () => void;
+  /** The clash that stopped the last attempt (null while there is none). */
+  overlap?: OverlapConflict | null;
+  /** The server's explanation of the last failed attempt. */
+  errorMessage?: string | null;
+  /** True while an attempt is still in flight. */
+  isSubmitting?: boolean;
 }
 
 export interface CheckInData {
@@ -25,9 +31,15 @@ export interface CheckInData {
   kids: number;
   advancePayment: number;
   paymentMethod?: PaymentMethod;
+  /** Hold the room for a guest who has not arrived yet: no arrival is recorded,
+   *  so the room is sold but stays empty (shown as Reserved). */
+  reserveOnly?: boolean;
+  /** Confirmed end to the incumbent's stay. Only ever set when the API reported
+   *  the clash as acknowledgeable - never invented by the form. */
+  acknowledgeOverlapFor?: number;
 }
 
-export function CheckInModal({ room, roomPrice, targetDate, onConfirm, onClose }: CheckInModalProps) {
+export function CheckInModal({ room, roomPrice, targetDate, onConfirm, onClose, overlap, errorMessage, isSubmitting }: CheckInModalProps) {
   function getNowTime() {
     const now = new Date();
     return now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -74,6 +86,14 @@ export function CheckInModal({ room, roomPrice, targetDate, onConfirm, onClose }
   });
 
   const [errors, setErrors] = useState<Partial<Record<keyof CheckInData, string>>>({});
+
+  // "Hold the room": the guest has not arrived yet, so no arrival is recorded.
+  const [reserveOnly, setReserveOnly] = useState(false);
+  // Set once the desk confirms that the guest currently in this room leaves
+  // today. It also forces reserve mode: an occupied room cannot take a guest in
+  // until that guest is actually checked out.
+  const [acknowledged, setAcknowledged] = useState(false);
+  const holdingRoom = reserveOnly || acknowledged;
 
   // Guest search state
   const [searchResults, setSearchResults] = useState<Guest[]>([]);
@@ -187,22 +207,39 @@ export function CheckInModal({ room, roomPrice, targetDate, onConfirm, onClose }
     return Object.keys(newErrors).length === 0;
   };
 
+  const buildSubmission = (): CheckInData => ({
+    guestName: formData.guestName,
+    phoneNumber: formData.phoneNumber,
+    nicNumber: formData.nicNumber,
+    checkInDate: formData.checkInDate,
+    checkOutDate: formData.checkOutDate,
+    days: formData.days,
+    adults: formData.adults,
+    kids: formData.kids,
+    advancePayment: formData.advancePayment,
+    paymentMethod: formData.advancePayment > 0 ? formData.paymentMethod : undefined,
+    reserveOnly: reserveOnly || acknowledged,
+    acknowledgeOverlapFor: acknowledged && overlap ? overlap.bookingId : undefined,
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (validateForm()) {
-      onConfirm({
-        guestName: formData.guestName,
-        phoneNumber: formData.phoneNumber,
-        nicNumber: formData.nicNumber,
-        checkInDate: formData.checkInDate,
-        checkOutDate: formData.checkOutDate,
-        days: formData.days,
-        adults: formData.adults,
-        kids: formData.kids,
-        advancePayment: formData.advancePayment,
-        paymentMethod: formData.advancePayment > 0 ? formData.paymentMethod : undefined,
-      });
+      onConfirm(buildSubmission());
     }
+  };
+
+  // The desk has confirmed the guest in this room is leaving today: hold the room
+  // from today and end that stay in the same write. Only offered while the API
+  // reports the clash as acknowledgeable - the form never decides that itself.
+  const handleAcknowledgeOverlap = () => {
+    if (!overlap || !overlap.canAcknowledge || !validateForm()) return;
+    setAcknowledged(true);
+    onConfirm({
+      ...buildSubmission(),
+      reserveOnly: true,
+      acknowledgeOverlapFor: overlap.bookingId,
+    });
   };
 
   return (
@@ -228,6 +265,45 @@ export function CheckInModal({ room, roomPrice, targetDate, onConfirm, onClose }
         {/* Body */}
         <div className="modal-body">
           <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Result of the last attempt: the room is still held by somebody else. */}
+            {errorMessage && !overlap?.canAcknowledge && (
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-sm text-rose-700">
+                {errorMessage}
+              </div>
+            )}
+
+            {/* One guest can be told to leave early - but only with this confirmation. */}
+            {overlap?.canAcknowledge && (
+              <div className="bg-amber-50 border border-amber-300 rounded-xl p-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle size={16} className="text-amber-600 mt-0.5 shrink-0" />
+                  <div className="text-sm text-amber-900">
+                    <div className="font-semibold">
+                      Room {room} is still held by {overlap.guestName || 'another guest'}
+                    </div>
+                    <p className="text-xs mt-1">
+                      Booked until{' '}
+                      {overlap.checkOutDate
+                        ? formatHotelDate(new Date(overlap.checkOutDate))
+                        : 'further notice'}
+                      . If that guest is checking out today, confirm it: their stay is re-priced for
+                      the nights actually used, anything over-paid is refunded, and the room is held
+                      for your guest from today.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleAcknowledgeOverlap}
+                      disabled={isSubmitting}
+                      className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white rounded-lg text-xs font-semibold transition-colors"
+                    >
+                      <KeyRound size={14} />
+                      Confirm early departure &amp; reserve from today
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Selected Guest Indicator */}
             {selectedGuest && (
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
@@ -340,6 +416,26 @@ export function CheckInModal({ room, roomPrice, targetDate, onConfirm, onClose }
                 disabled={!!selectedGuest}
               />
               {errors.nicNumber && <p className="text-rose-600 text-xs mt-1.5">{errors.nicNumber}</p>}
+            </div>
+
+            {/* Move the guest in now, or hold the room for a later arrival */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={holdingRoom}
+                  disabled={acknowledged}
+                  onChange={(e) => setReserveOnly(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-emerald-600"
+                />
+                <span className="text-sm text-slate-700">
+                  <span className="font-medium">Hold the room (reserve only)</span>
+                  <span className="block text-xs text-slate-500 mt-0.5">
+                    The guest has not arrived yet. The room is sold for these dates and shows as
+                    Reserved until they are checked in at the desk.
+                  </span>
+                </span>
+              </label>
             </div>
 
             {/* Check-In Date and Days */}
@@ -515,10 +611,11 @@ export function CheckInModal({ room, roomPrice, targetDate, onConfirm, onClose }
           <button
             type="button"
             onClick={handleSubmit}
-            className="btn-primary flex-1"
+            disabled={isSubmitting}
+            className="btn-primary flex-1 disabled:opacity-60"
           >
-            <UserPlus size={18} />
-            Check In
+            {holdingRoom ? <KeyRound size={18} /> : <UserPlus size={18} />}
+            {holdingRoom ? 'Reserve Room' : 'Check In'}
           </button>
         </div>
       </div>

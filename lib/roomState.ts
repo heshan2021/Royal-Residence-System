@@ -8,7 +8,7 @@
 // (room 303 was stuck "occupied" with no live booking; room 202 was "available"
 // while holding a live one). They are now always re-derived from bookings.
 
-import { and, eq, gte, isNull, lte, or, desc } from 'drizzle-orm';
+import { and, eq, gte, isNotNull, isNull, lte, or, desc } from 'drizzle-orm';
 import { bookings, db, guests, rooms } from '../src/db';
 
 export interface RoomFlagState {
@@ -30,12 +30,17 @@ const VACANT: RoomFlagState = {
 /**
  * Resolve what the room's cached columns should say at `at` (default: now),
  * based on the active booking that covers that moment.
+ *
+ * A RESERVATION (an `active` booking whose guest has not arrived yet, i.e.
+ * `checkedInAt IS NULL`) is deliberately excluded: the room is sold but empty,
+ * so it must not be counted as occupied.
  */
 export async function deriveRoomState(roomId: number, at: Date = new Date()): Promise<RoomFlagState> {
   const booking = await db.query.bookings.findFirst({
     where: and(
       eq(bookings.roomId, roomId),
       eq(bookings.status, 'active'),
+      isNotNull(bookings.checkedInAt),
       lte(bookings.checkInDate, at),
       or(isNull(bookings.checkOutDate), gte(bookings.checkOutDate, at))
     ),
