@@ -8,10 +8,12 @@ const pool = new Pool({
   connectionString: process.env.NEXT_PUBLIC_NEON_DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
-const TEST_NICS = ['CLINETESTA0001', 'CLINETESTB0001', 'CLINETESTC0001', 'CLINETESTX0001', 'CLINETESTH0001', 'CLINETESTI0001'];
+const TEST_NICS = ['CLINETESTA0001', 'CLINETESTB0001', 'CLINETESTC0001', 'CLINETESTX0001', 'CLINETESTH0001', 'CLINETESTI0001',
+  'CLINETESTJ0001', 'CLINETESTK0001', 'CLINETESTL0001', 'CLINETESTM0001', 'CLINETESTN0001', 'CLINETESTO0001', 'CLINETESTP0001'];
 
 /* rooms.* is a display cache of `bookings` (lib/roomState.ts); deleting rows
-   out-of-band must be followed by re-deriving it. */
+   out-of-band must be followed by re-deriving it. Mirrors deriveRoomState():
+   only an ARRIVED guest (checked_in_at) whose window covers now counts. */
 const RECONCILE_ROOMS = `UPDATE rooms r SET
     is_occupied   = COALESCE(s.occupied, false),
     guest_name    = s.guest_name,
@@ -31,8 +33,9 @@ const RECONCILE_ROOMS = `UPDATE rooms r SET
       SELECT bb.id, bb.guest_id, bb.check_out_date
       FROM bookings bb
       WHERE bb.room_id = r2.id AND bb.status = 'active'
+        AND bb.checked_in_at IS NOT NULL
         AND bb.check_in_date <= NOW()
-        AND (bb.check_out_date IS NULL OR bb.check_out_date > NOW())
+        AND (bb.check_out_date IS NULL OR bb.check_out_date >= NOW())
       ORDER BY bb.check_in_date DESC
       LIMIT 1
     ) b ON true

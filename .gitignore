@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# dev harness run artifacts
+_dev.log
+_scenario.out.txt
+_peek.js
+
